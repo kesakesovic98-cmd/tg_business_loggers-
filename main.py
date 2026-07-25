@@ -31,7 +31,7 @@ saved_messages = load_messages()
 
 def tg_api(method, data=None, files=None):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/{method}"
-    response = requests.post(url, data=data, files=files, timeout=60)
+    response = requests.post(url, data=data, files=files, timeout=120)
     return response.json()
 
 def send_message(chat_id, text):
@@ -39,6 +39,61 @@ def send_message(chat_id, text):
         "chat_id": chat_id,
         "text": text
     })
+
+def send_photo(chat_id, photo_path, caption=""):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
+    with open(photo_path, "rb") as photo:
+        response = requests.post(
+            url,
+            data={"chat_id": chat_id, "caption": caption},
+            files={"photo": photo},
+            timeout=120
+        )
+    return response.json()
+
+def send_document(chat_id, file_path, caption=""):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument"
+    with open(file_path, "rb") as doc:
+        response = requests.post(
+            url,
+            data={"chat_id": chat_id, "caption": caption},
+            files={"document": doc},
+            timeout=120
+        )
+    return response.json()
+
+def send_video(chat_id, file_path, caption=""):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendVideo"
+    with open(file_path, "rb") as video:
+        response = requests.post(
+            url,
+            data={"chat_id": chat_id, "caption": caption},
+            files={"video": video},
+            timeout=120
+        )
+    return response.json()
+
+def send_voice(chat_id, file_path, caption=""):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendVoice"
+    with open(file_path, "rb") as voice:
+        response = requests.post(
+            url,
+            data={"chat_id": chat_id, "caption": caption},
+            files={"voice": voice},
+            timeout=120
+        )
+    return response.json()
+
+def send_video_note(chat_id, file_path):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendVideoNote"
+    with open(file_path, "rb") as video_note:
+        response = requests.post(
+            url,
+            data={"chat_id": chat_id},
+            files={"video_note": video_note},
+            timeout=120
+        )
+    return response.json()
 
 def get_file(file_id):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/getFile"
@@ -78,13 +133,20 @@ def make_key(connection_id, chat_id, message_id):
 def get_user_label(user):
     if not user:
         return "Неизвестный пользователь"
+
     username = user.get("username")
-    if username:
-        return f"@{username}"
     first_name = user.get("first_name", "")
     last_name = user.get("last_name", "")
     full_name = " ".join(filter(None, [first_name, last_name])).strip()
-    return full_name or str(user.get("id", "unknown"))
+
+    if full_name and username:
+        return f"{full_name} (@{username})"
+    if username:
+        return f"@{username}"
+    if full_name:
+        return full_name
+
+    return str(user.get("id", "unknown"))
 
 def extract_media_info(msg):
     result = {
@@ -172,24 +234,52 @@ def build_message_preview(item):
     stored_path = item.get("stored_path") or ""
 
     if mtype == "text":
-        return f"Текст:\n{text or '—'}"
-    if mtype == "video_note":
-        return f"Кружок\nДлительность: {item.get('duration') or '—'} сек\nФайл: {stored_path or 'не сохранён'}"
-    if mtype == "voice":
-        return f"Голосовое\nДлительность: {item.get('duration') or '—'} сек\nФайл: {stored_path or 'не сохранён'}"
-    if mtype == "video":
-        return f"Видео\nПодпись: {item.get('caption') or '—'}\nФайл: {stored_path or 'не сохранён'}"
+        return text or "—"
     if mtype == "photo":
-        return f"Фото\nПодпись: {item.get('caption') or '—'}\nФайл: {stored_path or 'не сохранён'}"
+        return f"Фото\nПодпись: {item.get('caption') or '—'}"
+    if mtype == "video":
+        return f"Видео\nПодпись: {item.get('caption') or '—'}"
+    if mtype == "video_note":
+        return f"Кружок\nДлительность: {item.get('duration') or '—'} сек"
+    if mtype == "voice":
+        return f"Голосовое\nДлительность: {item.get('duration') or '—'} сек"
     if mtype == "document":
-        return f"Документ\nИмя: {file_name or '—'}\nПодпись: {item.get('caption') or '—'}\nФайл: {stored_path or 'не сохранён'}"
+        return f"Документ\nИмя: {file_name or '—'}\nПодпись: {item.get('caption') or '—'}"
     if mtype == "audio":
-        return f"Аудио\nИмя: {file_name or '—'}\nФайл: {stored_path or 'не сохранён'}"
+        return f"Аудио\nИмя: {file_name or '—'}"
     if mtype == "animation":
-        return f"GIF/анимация\nИмя: {file_name or '—'}\nФайл: {stored_path or 'не сохранён'}"
+        return f"GIF/анимация\nИмя: {file_name or '—'}"
     if mtype == "sticker":
-        return f"Стикер\nФайл: {stored_path or 'не сохранён'}"
-    return f"Тип: {mtype}\n{text or stored_path or '—'}"
+        return "Стикер"
+
+    return text or stored_path or "—"
+
+def build_deleted_caption(user_label):
+    return f"{user_label} удалил(а) сообщение:"
+
+def build_edited_text_message(user_label, old_text, new_text):
+    return (
+        f"{user_label} изменил(а) сообщение:\n\n"
+        f"Old:\n"
+        f"❝ {old_text or '—'} ❞\n\n"
+        f"New:\n"
+        f"❝ {new_text or '—'} ❞"
+    )
+
+def build_edited_media_message(user_label, old_preview, new_preview):
+    return (
+        f"{user_label} изменил(а) сообщение:\n\n"
+        f"Old:\n"
+        f"❝ {old_preview or '—'} ❞\n\n"
+        f"New:\n"
+        f"❝ {new_preview or '—'} ❞"
+    )
+
+def build_deleted_text_message(user_label, preview):
+    return (
+        f"{user_label} удалил(а) сообщение:\n\n"
+        f"❝ {preview or '—'} ❞"
+    )
 
 @app.get("/")
 async def root():
@@ -268,12 +358,12 @@ async def telegram_webhook(
             if old and old.get("message_type") == "text" and media_info.get("message_type") == "text":
                 send_message(
                     ADMIN_CHAT_ID,
-                    f"✏️ {user_label} изменил сообщение\n\nБыло:\n{old_text or '—'}\n\nСтало:\n{new_text or '—'}"
+                    build_edited_text_message(user_label, old_text, new_text)
                 )
             else:
                 send_message(
                     ADMIN_CHAT_ID,
-                    f"✏️ {user_label} изменил сообщение\n\nБыло:\n{old_preview}\n\nСтало:\n{new_preview}"
+                    build_edited_media_message(user_label, old_preview, new_preview)
                 )
 
     elif update.get("deleted_business_messages"):
@@ -284,14 +374,36 @@ async def telegram_webhook(
 
             if ADMIN_CHAT_ID:
                 if old:
-                    send_message(
-                        ADMIN_CHAT_ID,
-                        f"🗑 {old['user_label']} удалил сообщение\n\n{build_message_preview(old)}"
-                    )
+                    user_label = old.get("user_label", "Пользователь")
+                    message_type = old.get("message_type")
+                    stored_path = old.get("stored_path")
+                    caption = build_deleted_caption(user_label)
+
+                    if message_type == "photo" and stored_path and os.path.exists(stored_path):
+                        send_photo(ADMIN_CHAT_ID, stored_path, caption=caption)
+
+                    elif message_type == "video" and stored_path and os.path.exists(stored_path):
+                        send_video(ADMIN_CHAT_ID, stored_path, caption=caption)
+
+                    elif message_type == "voice" and stored_path and os.path.exists(stored_path):
+                        send_voice(ADMIN_CHAT_ID, stored_path, caption=caption)
+
+                    elif message_type == "video_note" and stored_path and os.path.exists(stored_path):
+                        send_message(ADMIN_CHAT_ID, caption)
+                        send_video_note(ADMIN_CHAT_ID, stored_path)
+
+                    elif message_type in ["document", "animation", "audio", "sticker"] and stored_path and os.path.exists(stored_path):
+                        send_document(ADMIN_CHAT_ID, stored_path, caption=caption)
+
+                    else:
+                        send_message(
+                            ADMIN_CHAT_ID,
+                            build_deleted_text_message(user_label, build_message_preview(old))
+                        )
                 else:
                     send_message(
                         ADMIN_CHAT_ID,
-                        f"🗑 Удалено сообщение ID {message_id}, но оно не было сохранено заранее."
+                        "Сообщение было удалено, но оно не было сохранено заранее."
                     )
 
     return {"ok": True}
