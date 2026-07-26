@@ -209,6 +209,19 @@ def make_key(connection_id, chat_id, message_id) -> str:
     return f"{connection_id}:{chat_id}:{message_id}"
 
 
+def find_saved_message(connection_id, chat_id, message_id):
+    exact_key = make_key(connection_id, chat_id, message_id)
+    if exact_key in saved_messages:
+        return exact_key, saved_messages[exact_key]
+
+    fallback_suffix = f":{chat_id}:{message_id}"
+    for k, v in saved_messages.items():
+        if k.endswith(fallback_suffix):
+            return k, v
+
+    return None, None
+
+
 def get_user_label(user) -> str:
     if not user:
         return "Неизвестный пользователь"
@@ -616,6 +629,7 @@ async def telegram_webhook(
             msg = update["business_message"]
             bc_id = msg.get("business_connection_id")
             chat_id = (msg.get("chat") or {}).get("id")
+            message_id = msg.get("message_id")
 
             if bc_id:
                 store_connection_info(
@@ -624,7 +638,7 @@ async def telegram_webhook(
                     user_obj=msg.get("from")
                 )
 
-            key = make_key(bc_id, chat_id, msg.get("message_id"))
+            key = make_key(bc_id, chat_id, message_id)
             user_label = get_user_label(msg.get("from"))
             media_info = extract_media_info(msg)
 
@@ -639,7 +653,7 @@ async def telegram_webhook(
             saved_messages[key] = {
                 "connection_id": bc_id,
                 "chat_id": chat_id,
-                "message_id": msg.get("message_id"),
+                "message_id": message_id,
                 "user_label": user_label,
                 **media_info
             }
@@ -667,6 +681,7 @@ async def telegram_webhook(
             msg = update["edited_business_message"]
             bc_id = msg.get("business_connection_id")
             chat_id = (msg.get("chat") or {}).get("id")
+            message_id = msg.get("message_id")
 
             if bc_id:
                 store_connection_info(
@@ -675,8 +690,8 @@ async def telegram_webhook(
                     user_obj=msg.get("from")
                 )
 
-            key = make_key(bc_id, chat_id, msg.get("message_id"))
-            old = saved_messages.get(key)
+            key = make_key(bc_id, chat_id, message_id)
+            found_key, old = find_saved_message(bc_id, chat_id, message_id)
 
             user_label = get_user_label(msg.get("from"))
             media_info = extract_media_info(msg)
@@ -696,18 +711,18 @@ async def telegram_webhook(
                 old_text = old.get("text") or old.get("caption") or ""
                 old_preview = build_message_preview(old)
 
-            new_text = media_info.get("text") or media_info.get("caption") or ""
-            new_preview = build_message_preview(media_info)
-
             saved_messages[key] = {
                 "connection_id": bc_id,
                 "chat_id": chat_id,
-                "message_id": msg.get("message_id"),
+                "message_id": message_id,
                 "user_label": user_label,
                 "previous_text": old_text,
                 **media_info
             }
             save_json(DATA_FILE, saved_messages)
+
+            new_text = media_info.get("text") or media_info.get("caption") or ""
+            new_preview = build_message_preview(media_info)
 
             if old and old.get("message_type") == "text" and media_info.get("message_type") == "text":
                 send_to_business_owner_text(
@@ -733,8 +748,10 @@ async def telegram_webhook(
 
             for message_id in deleted.get("message_ids", []):
                 key = make_key(bc_id, chat_id, message_id)
-                old = saved_messages.get(key)
+                found_key, old = find_saved_message(bc_id, chat_id, message_id)
+
                 if not old:
+                    print("DELETE MISS:", {"bc_id": bc_id, "chat_id": chat_id, "message_id": message_id})
                     continue
 
                 user_label = old.get("user_label", "Пользователь")
