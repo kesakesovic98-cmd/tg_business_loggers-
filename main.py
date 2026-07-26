@@ -2,34 +2,24 @@ import os
 import json
 import html
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional
 
 import requests
 from fastapi import FastAPI, Request, Header, HTTPException
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
-ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", "").strip()
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "").strip()
+ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", "").strip()
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is not set")
 
 app = FastAPI()
 
-DATA_FILE = "messages.json"
+MESSAGES_FILE = "messages.json"
 CONNECTIONS_FILE = "connections.json"
 MEDIA_DIR = Path("media")
 MEDIA_DIR.mkdir(exist_ok=True)
-
-
-@app.get("/")
-async def root():
-    return {"ok": True, "service": "telegram-business-logger"}
-
-
-@app.get("/health")
-async def health():
-    return {"ok": True}
 
 
 def load_json(path: str):
@@ -47,8 +37,18 @@ def save_json(path: str, data):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-saved_messages = load_json(DATA_FILE)
+saved_messages = load_json(MESSAGES_FILE)
 saved_connections = load_json(CONNECTIONS_FILE)
+
+
+@app.get("/")
+async def root():
+    return {"ok": True, "service": "telegram-business-user-notifier"}
+
+
+@app.get("/health")
+async def health():
+    return {"ok": True}
 
 
 def escape_text(value) -> str:
@@ -70,102 +70,53 @@ def tg_api(method: str, data=None, files=None):
         return {"ok": False, "status_code": response.status_code, "text": response.text}
 
 
-def send_message(chat_id, text: str, business_connection_id: Optional[str] = None):
-    data = {
+def send_message(chat_id: int, text: str):
+    return tg_api("sendMessage", data={
         "chat_id": chat_id,
         "text": text,
-        "parse_mode": "HTML",
-    }
-    if business_connection_id:
-        data["business_connection_id"] = business_connection_id
-    return tg_api("sendMessage", data=data)
+        "parse_mode": "HTML"
+    })
 
 
-def send_photo(chat_id, photo_path: str, caption: str = "", business_connection_id: Optional[str] = None):
+def send_photo(chat_id: int, photo_path: str, caption: str = ""):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
     data = {
         "chat_id": chat_id,
         "caption": caption,
-        "parse_mode": "HTML",
+        "parse_mode": "HTML"
     }
-    if business_connection_id:
-        data["business_connection_id"] = business_connection_id
-
-    with open(photo_path, "rb") as photo:
-        response = requests.post(url, data=data, files={"photo": photo}, timeout=120)
-
+    with open(photo_path, "rb") as f:
+        response = requests.post(url, data=data, files={"photo": f}, timeout=120)
     try:
         return response.json()
     except Exception:
         return {"ok": False, "status_code": response.status_code, "text": response.text}
 
 
-def send_video(chat_id, video_path: str, caption: str = "", business_connection_id: Optional[str] = None):
+def send_video(chat_id: int, video_path: str, caption: str = ""):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendVideo"
     data = {
         "chat_id": chat_id,
         "caption": caption,
-        "parse_mode": "HTML",
+        "parse_mode": "HTML"
     }
-    if business_connection_id:
-        data["business_connection_id"] = business_connection_id
-
-    with open(video_path, "rb") as video:
-        response = requests.post(url, data=data, files={"video": video}, timeout=120)
-
+    with open(video_path, "rb") as f:
+        response = requests.post(url, data=data, files={"video": f}, timeout=120)
     try:
         return response.json()
     except Exception:
         return {"ok": False, "status_code": response.status_code, "text": response.text}
 
 
-def send_voice(chat_id, voice_path: str, caption: str = "", business_connection_id: Optional[str] = None):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendVoice"
-    data = {
-        "chat_id": chat_id,
-        "caption": caption,
-        "parse_mode": "HTML",
-    }
-    if business_connection_id:
-        data["business_connection_id"] = business_connection_id
-
-    with open(voice_path, "rb") as voice:
-        response = requests.post(url, data=data, files={"voice": voice}, timeout=120)
-
-    try:
-        return response.json()
-    except Exception:
-        return {"ok": False, "status_code": response.status_code, "text": response.text}
-
-
-def send_document(chat_id, file_path: str, caption: str = "", business_connection_id: Optional[str] = None):
+def send_document(chat_id: int, file_path: str, caption: str = ""):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument"
     data = {
         "chat_id": chat_id,
         "caption": caption,
-        "parse_mode": "HTML",
+        "parse_mode": "HTML"
     }
-    if business_connection_id:
-        data["business_connection_id"] = business_connection_id
-
-    with open(file_path, "rb") as doc:
-        response = requests.post(url, data=data, files={"document": doc}, timeout=120)
-
-    try:
-        return response.json()
-    except Exception:
-        return {"ok": False, "status_code": response.status_code, "text": response.text}
-
-
-def send_video_note(chat_id, file_path: str, business_connection_id: Optional[str] = None):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendVideoNote"
-    data = {"chat_id": chat_id}
-    if business_connection_id:
-        data["business_connection_id"] = business_connection_id
-
-    with open(file_path, "rb") as video_note:
-        response = requests.post(url, data=data, files={"video_note": video_note}, timeout=120)
-
+    with open(file_path, "rb") as f:
+        response = requests.post(url, data=data, files={"document": f}, timeout=120)
     try:
         return response.json()
     except Exception:
@@ -179,22 +130,21 @@ def get_file(file_id: str):
     return None
 
 
-def download_file(file_id: str, message_type: str, unique_id: str):
+def download_file(file_id: str, prefix: str, unique_id: str):
     try:
         file_info = get_file(file_id)
         if not file_info:
             return None
 
-        remote_file_path = file_info.get("file_path")
-        if not remote_file_path:
+        remote_path = file_info.get("file_path")
+        if not remote_path:
             return None
 
-        ext = Path(remote_file_path).suffix or ".bin"
-        local_path = MEDIA_DIR / f"{message_type}_{unique_id}{ext}"
+        ext = Path(remote_path).suffix or ".bin"
+        local_path = MEDIA_DIR / f"{prefix}_{unique_id}{ext}"
 
-        file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{remote_file_path}"
+        file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{remote_path}"
         response = requests.get(file_url, timeout=120)
-
         if response.status_code == 200:
             with open(local_path, "wb") as f:
                 f.write(response.content)
@@ -205,21 +155,8 @@ def download_file(file_id: str, message_type: str, unique_id: str):
     return None
 
 
-def make_key(connection_id, chat_id, message_id) -> str:
-    return f"{connection_id}:{chat_id}:{message_id}"
-
-
-def find_saved_message(connection_id, chat_id, message_id):
-    exact_key = make_key(connection_id, chat_id, message_id)
-    if exact_key in saved_messages:
-        return exact_key, saved_messages[exact_key]
-
-    fallback_suffix = f":{chat_id}:{message_id}"
-    for k, v in saved_messages.items():
-        if k.endswith(fallback_suffix):
-            return k, v
-
-    return None, None
+def message_key(chat_id, message_id) -> str:
+    return f"{chat_id}:{message_id}"
 
 
 def get_user_label(user) -> str:
@@ -240,125 +177,84 @@ def get_user_label(user) -> str:
     return str(user.get("id", "unknown"))
 
 
-def store_connection_info(business_connection_id: Optional[str], user_chat_id=None, user_obj=None):
+def store_connection(business_connection_id: str, user_chat_id: Optional[int], user_obj=None):
     if not business_connection_id:
         return
 
-    current = saved_connections.get(business_connection_id, {})
+    item = saved_connections.get(business_connection_id, {})
     if user_chat_id is not None:
-        current["user_chat_id"] = user_chat_id
+        item["user_chat_id"] = user_chat_id
     if user_obj is not None:
-        current["user"] = user_obj
+        item["user"] = user_obj
 
-    saved_connections[business_connection_id] = current
+    saved_connections[business_connection_id] = item
     save_json(CONNECTIONS_FILE, saved_connections)
 
 
-def get_target_chat_and_connection(obj) -> Tuple[Optional[int], Optional[str]]:
-    business_connection_id = obj.get("business_connection_id") or obj.get("connection_id")
-    chat = obj.get("chat", {}) or {}
-    fallback_chat_id = chat.get("id")
-
-    saved_conn = saved_connections.get(business_connection_id, {})
-    user_chat_id = saved_conn.get("user_chat_id") or fallback_chat_id
-
-    return user_chat_id, business_connection_id
+def get_owner_chat_id(business_connection_id: Optional[str], fallback_chat_id=None):
+    if business_connection_id and business_connection_id in saved_connections:
+        user_chat_id = saved_connections[business_connection_id].get("user_chat_id")
+        if user_chat_id:
+            return user_chat_id
+    return fallback_chat_id
 
 
-def send_to_business_owner_text(obj, text: str):
-    target_chat_id, business_connection_id = get_target_chat_and_connection(obj)
-    if not target_chat_id:
+def safe_notify_owner(business_connection_id: Optional[str], text: str, fallback_chat_id=None):
+    owner_chat_id = get_owner_chat_id(business_connection_id, fallback_chat_id=fallback_chat_id)
+    if not owner_chat_id:
+        print("NO OWNER CHAT:", {"business_connection_id": business_connection_id, "fallback_chat_id": fallback_chat_id})
         return None
-    return send_message(target_chat_id, text, business_connection_id=business_connection_id)
+    result = send_message(owner_chat_id, text)
+    print("SEND RESULT:", result)
+    return result
 
 
-def send_to_business_owner_photo(obj, photo_path: str, caption: str = ""):
-    target_chat_id, business_connection_id = get_target_chat_and_connection(obj)
-    if not target_chat_id:
+def safe_notify_owner_photo(business_connection_id: Optional[str], photo_path: str, caption: str = "", fallback_chat_id=None):
+    owner_chat_id = get_owner_chat_id(business_connection_id, fallback_chat_id=fallback_chat_id)
+    if not owner_chat_id:
+        print("NO OWNER CHAT:", {"business_connection_id": business_connection_id, "fallback_chat_id": fallback_chat_id})
         return None
-    return send_photo(target_chat_id, photo_path, caption=caption, business_connection_id=business_connection_id)
+    result = send_photo(owner_chat_id, photo_path, caption=caption)
+    print("SEND PHOTO RESULT:", result)
+    return result
 
 
-def send_to_business_owner_video(obj, video_path: str, caption: str = ""):
-    target_chat_id, business_connection_id = get_target_chat_and_connection(obj)
-    if not target_chat_id:
+def safe_notify_owner_video(business_connection_id: Optional[str], video_path: str, caption: str = "", fallback_chat_id=None):
+    owner_chat_id = get_owner_chat_id(business_connection_id, fallback_chat_id=fallback_chat_id)
+    if not owner_chat_id:
+        print("NO OWNER CHAT:", {"business_connection_id": business_connection_id, "fallback_chat_id": fallback_chat_id})
         return None
-    return send_video(target_chat_id, video_path, caption=caption, business_connection_id=business_connection_id)
+    result = send_video(owner_chat_id, video_path, caption=caption)
+    print("SEND VIDEO RESULT:", result)
+    return result
 
 
-def send_to_business_owner_voice(obj, voice_path: str, caption: str = ""):
-    target_chat_id, business_connection_id = get_target_chat_and_connection(obj)
-    if not target_chat_id:
+def safe_notify_owner_document(business_connection_id: Optional[str], file_path: str, caption: str = "", fallback_chat_id=None):
+    owner_chat_id = get_owner_chat_id(business_connection_id, fallback_chat_id=fallback_chat_id)
+    if not owner_chat_id:
+        print("NO OWNER CHAT:", {"business_connection_id": business_connection_id, "fallback_chat_id": fallback_chat_id})
         return None
-    return send_voice(target_chat_id, voice_path, caption=caption, business_connection_id=business_connection_id)
-
-
-def send_to_business_owner_document(obj, file_path: str, caption: str = ""):
-    target_chat_id, business_connection_id = get_target_chat_and_connection(obj)
-    if not target_chat_id:
-        return None
-    return send_document(target_chat_id, file_path, caption=caption, business_connection_id=business_connection_id)
-
-
-def send_to_business_owner_video_note(obj, file_path: str):
-    target_chat_id, business_connection_id = get_target_chat_and_connection(obj)
-    if not target_chat_id:
-        return None
-    return send_video_note(target_chat_id, file_path, business_connection_id=business_connection_id)
+    result = send_document(owner_chat_id, file_path, caption=caption)
+    print("SEND DOCUMENT RESULT:", result)
+    return result
 
 
 def get_reply_preview(reply_to):
     if not reply_to:
         return None
-
     if reply_to.get("text"):
-        return reply_to.get("text")
+        return reply_to["text"]
     if reply_to.get("caption"):
-        return reply_to.get("caption")
+        return reply_to["caption"]
     if reply_to.get("photo"):
         return "[photo]"
     if reply_to.get("video"):
         return "[video]"
-    if reply_to.get("video_note"):
-        return "[video_note]"
-    if reply_to.get("voice"):
-        return "[voice]"
     if reply_to.get("document"):
         return "[document]"
-    if reply_to.get("audio"):
-        return "[audio]"
-    if reply_to.get("animation"):
-        return "[animation]"
-    if reply_to.get("sticker"):
-        return "[sticker]"
-
+    if reply_to.get("voice"):
+        return "[voice]"
     return None
-
-
-def is_normal_reply_message(reply_to) -> bool:
-    if not reply_to:
-        return False
-
-    return any([
-        reply_to.get("text"),
-        reply_to.get("caption"),
-        reply_to.get("photo"),
-        reply_to.get("video"),
-        reply_to.get("video_note"),
-        reply_to.get("voice"),
-        reply_to.get("document"),
-        reply_to.get("audio"),
-        reply_to.get("animation"),
-        reply_to.get("sticker"),
-    ])
-
-
-def is_probably_disappearing_reply(reply_to) -> bool:
-    if not reply_to:
-        return False
-    if is_normal_reply_message(reply_to):
-        return False
-    return True
 
 
 def extract_reply_media(reply_to):
@@ -371,7 +267,7 @@ def extract_reply_media(reply_to):
             "message_type": "photo",
             "file_id": largest.get("file_id"),
             "file_unique_id": largest.get("file_unique_id"),
-            "caption": reply_to.get("caption", ""),
+            "caption": reply_to.get("caption", "")
         }
 
     if reply_to.get("video"):
@@ -380,7 +276,16 @@ def extract_reply_media(reply_to):
             "message_type": "video",
             "file_id": video.get("file_id"),
             "file_unique_id": video.get("file_unique_id"),
-            "caption": reply_to.get("caption", ""),
+            "caption": reply_to.get("caption", "")
+        }
+
+    if reply_to.get("document"):
+        doc = reply_to["document"]
+        return {
+            "message_type": "document",
+            "file_id": doc.get("file_id"),
+            "file_unique_id": doc.get("file_unique_id"),
+            "caption": reply_to.get("caption", "")
         }
 
     return None
@@ -397,21 +302,11 @@ def extract_media_info(msg):
         "mime_type": None,
         "duration": None,
         "stored_path": None,
-        "reply_to_message_id": None,
         "reply_to_preview": None,
-        "reply_is_disappearing": False,
-        "reply_debug_raw": None,
     }
 
-    reply_to = msg.get("reply_to_message")
-    if reply_to:
-        result["reply_to_message_id"] = reply_to.get("message_id")
-        result["reply_to_preview"] = get_reply_preview(reply_to)
-        result["reply_is_disappearing"] = is_probably_disappearing_reply(reply_to)
-        try:
-            result["reply_debug_raw"] = json.dumps(reply_to, ensure_ascii=False)
-        except Exception:
-            result["reply_debug_raw"] = str(reply_to)
+    if msg.get("reply_to_message"):
+        result["reply_to_preview"] = get_reply_preview(msg.get("reply_to_message"))
 
     if msg.get("text"):
         result["message_type"] = "text"
@@ -430,52 +325,21 @@ def extract_media_info(msg):
         result["mime_type"] = video.get("mime_type")
         result["duration"] = video.get("duration")
 
-    elif msg.get("video_note"):
-        video_note = msg["video_note"]
-        result["message_type"] = "video_note"
-        result["file_id"] = video_note.get("file_id")
-        result["file_unique_id"] = video_note.get("file_unique_id")
-        result["duration"] = video_note.get("duration")
+    elif msg.get("document"):
+        doc = msg["document"]
+        result["message_type"] = "document"
+        result["file_id"] = doc.get("file_id")
+        result["file_unique_id"] = doc.get("file_unique_id")
+        result["file_name"] = doc.get("file_name")
+        result["mime_type"] = doc.get("mime_type")
 
     elif msg.get("voice"):
         voice = msg["voice"]
         result["message_type"] = "voice"
         result["file_id"] = voice.get("file_id")
         result["file_unique_id"] = voice.get("file_unique_id")
-        result["mime_type"] = voice.get("mime_type")
         result["duration"] = voice.get("duration")
-
-    elif msg.get("audio"):
-        audio = msg["audio"]
-        result["message_type"] = "audio"
-        result["file_id"] = audio.get("file_id")
-        result["file_unique_id"] = audio.get("file_unique_id")
-        result["mime_type"] = audio.get("mime_type")
-        result["duration"] = audio.get("duration")
-        result["file_name"] = audio.get("file_name")
-
-    elif msg.get("document"):
-        document = msg["document"]
-        result["message_type"] = "document"
-        result["file_id"] = document.get("file_id")
-        result["file_unique_id"] = document.get("file_unique_id")
-        result["mime_type"] = document.get("mime_type")
-        result["file_name"] = document.get("file_name")
-
-    elif msg.get("animation"):
-        animation = msg["animation"]
-        result["message_type"] = "animation"
-        result["file_id"] = animation.get("file_id")
-        result["file_unique_id"] = animation.get("file_unique_id")
-        result["mime_type"] = animation.get("mime_type")
-        result["file_name"] = animation.get("file_name")
-        result["duration"] = animation.get("duration")
-
-    elif msg.get("sticker"):
-        sticker = msg["sticker"]
-        result["message_type"] = "sticker"
-        result["file_id"] = sticker.get("file_id")
-        result["file_unique_id"] = sticker.get("file_unique_id")
+        result["mime_type"] = voice.get("mime_type")
 
     return result
 
@@ -484,29 +348,29 @@ def build_message_preview(item) -> str:
     if not item:
         return "—"
 
-    mtype = item.get("message_type", "unknown")
-    text = item.get("text") or item.get("caption") or ""
-    file_name = item.get("file_name") or ""
-
+    mtype = item.get("message_type")
     if mtype == "text":
-        return text or "—"
+        return item.get("text") or "—"
     if mtype == "photo":
         return f"Фото\nПодпись: {item.get('caption') or '—'}"
     if mtype == "video":
         return f"Видео\nПодпись: {item.get('caption') or '—'}"
-    if mtype == "video_note":
-        return f"Кружок\nДлительность: {item.get('duration') or '—'} сек"
+    if mtype == "document":
+        return f"Документ\nИмя: {item.get('file_name') or '—'}\nПодпись: {item.get('caption') or '—'}"
     if mtype == "voice":
         return f"Голосовое\nДлительность: {item.get('duration') or '—'} сек"
-    if mtype == "document":
-        return f"Документ\nИмя: {file_name or '—'}\nПодпись: {item.get('caption') or '—'}"
-    if mtype == "audio":
-        return f"Аудио\nИмя: {file_name or '—'}"
-    if mtype == "animation":
-        return f"GIF/анимация\nИмя: {file_name or '—'}"
-    if mtype == "sticker":
-        return "Стикер"
-    return text or "—"
+    return item.get("text") or item.get("caption") or "—"
+
+
+def build_deleted_text_message(user_label: str, preview: str) -> str:
+    return (
+        f"🗑 <b>{escape_text(user_label)}</b> <b>УДАЛИЛ(А) СООБЩЕНИЕ</b>\n\n"
+        f"{quote_box(preview or '—')}"
+    )
+
+
+def build_deleted_caption(user_label: str) -> str:
+    return f"🗑 <b>{escape_text(user_label)}</b> <b>УДАЛИЛ(А) СООБЩЕНИЕ</b>"
 
 
 def build_edited_text_message(user_label: str, old_text: str, new_text: str) -> str:
@@ -529,35 +393,15 @@ def build_edited_media_message(user_label: str, old_preview: str, new_preview: s
     )
 
 
-def build_deleted_text_message(user_label: str, preview: str) -> str:
+def build_reply_saved_caption(user_label: str, caption: str) -> str:
     return (
-        f"🗑 <b>{escape_text(user_label)}</b> <b>УДАЛИЛ(А) СООБЩЕНИЕ</b>\n\n"
-        f"{quote_box(preview or '—')}"
+        f"💾 <b>{escape_text(user_label)}</b> <b>ОТВЕТИЛ(А) НА REPLY-МЕДИА</b>\n\n"
+        f"<b>СОХРАНЕНО АВТОМАТИЧЕСКИ</b>\n"
+        f"{quote_box(caption or 'Без подписи')}"
     )
 
 
-def build_deleted_caption(user_label: str) -> str:
-    return f"🗑 <b>{escape_text(user_label)}</b> <b>УДАЛИЛ(А) СООБЩЕНИЕ</b>"
-
-
-def build_disappearing_reply_notice(user_label: str, reply_preview: Optional[str]) -> str:
-    return (
-        f"👁 <b>{escape_text(user_label)}</b> <b>ОТВЕТИЛ(А) НА ОДНОРАЗОВОЕ / НЕДОСТУПНОЕ СООБЩЕНИЕ</b>\n\n"
-        f"{quote_box(reply_preview or 'Содержимое недоступно через Bot API')}"
-    )
-
-
-def build_disappearing_debug_message(user_label: str, raw_reply: Optional[str]) -> str:
-    raw_reply = escape_text(raw_reply or "Нет данных")
-    if len(raw_reply) > 3000:
-        raw_reply = raw_reply[:3000] + "\n...TRUNCATED..."
-    return (
-        f"🛠 <b>DEBUG reply_to_message для {escape_text(user_label)}</b>\n\n"
-        f"<pre>{raw_reply}</pre>"
-    )
-
-
-def auto_forward_reply_media_to_owner(msg_obj, user_label: str, reply_to) -> bool:
+def auto_forward_reply_media_to_owner(business_connection_id: Optional[str], fallback_chat_id, user_label: str, reply_to):
     reply_media = extract_reply_media(reply_to)
     if not reply_media:
         return False
@@ -574,18 +418,18 @@ def auto_forward_reply_media_to_owner(msg_obj, user_label: str, reply_to) -> boo
     if not stored_path or not os.path.exists(stored_path):
         return False
 
-    notify_caption = (
-        f"💾 <b>{escape_text(user_label)}</b> <b>ОТВЕТИЛ(А) НА REPLY-МЕДИА / СООБЩЕНИЕ С ТАЙМЕРОМ</b>\n\n"
-        f"<b>СОХРАНЕНО АВТОМАТИЧЕСКИ</b>\n"
-        f"{quote_box(caption or 'Без подписи')}"
-    )
+    notify_caption = build_reply_saved_caption(user_label, caption)
 
     if message_type == "photo":
-        send_to_business_owner_photo(msg_obj, stored_path, caption=notify_caption)
+        safe_notify_owner_photo(business_connection_id, stored_path, caption=notify_caption, fallback_chat_id=fallback_chat_id)
         return True
 
     if message_type == "video":
-        send_to_business_owner_video(msg_obj, stored_path, caption=notify_caption)
+        safe_notify_owner_video(business_connection_id, stored_path, caption=notify_caption, fallback_chat_id=fallback_chat_id)
+        return True
+
+    if message_type == "document":
+        safe_notify_owner_document(business_connection_id, stored_path, caption=notify_caption, fallback_chat_id=fallback_chat_id)
         return True
 
     return False
@@ -610,19 +454,14 @@ async def telegram_webhook(
             user_obj = bc.get("user")
 
             if bc_id:
-                store_connection_info(
-                    business_connection_id=bc_id,
-                    user_chat_id=user_chat_id,
-                    user_obj=user_obj
-                )
+                store_connection(bc_id, user_chat_id, user_obj)
 
-            if bc.get("is_enabled") and bc_id and user_chat_id:
+            if bc.get("is_enabled") and user_chat_id:
                 send_message(
                     user_chat_id,
-                    "✅ <b>SnapSave Bot подключён.</b>\n\n"
+                    "✅ <b>Бот подключён.</b>\n\n"
                     "Теперь удалённые, изменённые сообщения и сохранённые reply-медиа "
-                    "будут приходить именно сюда.",
-                    business_connection_id=bc_id
+                    "будут приходить сюда, в этот чат с ботом."
                 )
 
         elif "business_message" in update:
@@ -630,79 +469,57 @@ async def telegram_webhook(
             bc_id = msg.get("business_connection_id")
             chat_id = (msg.get("chat") or {}).get("id")
             message_id = msg.get("message_id")
+            user_label = get_user_label(msg.get("from"))
 
             if bc_id:
-                store_connection_info(
-                    business_connection_id=bc_id,
-                    user_chat_id=chat_id,
-                    user_obj=msg.get("from")
-                )
+                owner_chat_id = get_owner_chat_id(bc_id, fallback_chat_id=chat_id)
+                store_connection(bc_id, owner_chat_id, msg.get("from"))
 
-            key = make_key(bc_id, chat_id, message_id)
-            user_label = get_user_label(msg.get("from"))
             media_info = extract_media_info(msg)
 
             if media_info["file_id"] and media_info["file_unique_id"]:
-                stored_path = download_file(
+                media_info["stored_path"] = download_file(
                     media_info["file_id"],
                     media_info["message_type"],
                     media_info["file_unique_id"]
                 )
-                media_info["stored_path"] = stored_path
 
-            saved_messages[key] = {
-                "connection_id": bc_id,
+            saved_messages[message_key(chat_id, message_id)] = {
+                "business_connection_id": bc_id,
+                "owner_chat_id": get_owner_chat_id(bc_id, fallback_chat_id=chat_id),
                 "chat_id": chat_id,
                 "message_id": message_id,
                 "user_label": user_label,
                 **media_info
             }
-            save_json(DATA_FILE, saved_messages)
+            save_json(MESSAGES_FILE, saved_messages)
 
             reply_to = msg.get("reply_to_message")
-            auto_saved = False
-
             if reply_to:
-                auto_saved = auto_forward_reply_media_to_owner(msg, user_label, reply_to)
-
-            if media_info.get("reply_is_disappearing") and not auto_saved:
-                send_to_business_owner_text(
-                    msg,
-                    build_disappearing_reply_notice(user_label, media_info.get("reply_to_preview"))
+                auto_forward_reply_media_to_owner(
+                    bc_id,
+                    get_owner_chat_id(bc_id, fallback_chat_id=chat_id),
+                    user_label,
+                    reply_to
                 )
-
-                if ADMIN_CHAT_ID and media_info.get("reply_debug_raw"):
-                    send_message(
-                        ADMIN_CHAT_ID,
-                        build_disappearing_debug_message(user_label, media_info.get("reply_debug_raw"))
-                    )
 
         elif "edited_business_message" in update:
             msg = update["edited_business_message"]
             bc_id = msg.get("business_connection_id")
             chat_id = (msg.get("chat") or {}).get("id")
             message_id = msg.get("message_id")
+            key = message_key(chat_id, message_id)
 
-            if bc_id:
-                store_connection_info(
-                    business_connection_id=bc_id,
-                    user_chat_id=chat_id,
-                    user_obj=msg.get("from")
-                )
-
-            key = make_key(bc_id, chat_id, message_id)
-            found_key, old = find_saved_message(bc_id, chat_id, message_id)
-
+            old = saved_messages.get(key)
             user_label = get_user_label(msg.get("from"))
             media_info = extract_media_info(msg)
 
             if media_info["file_id"] and media_info["file_unique_id"]:
-                stored_path = download_file(
+                media_info["stored_path"] = download_file(
                     media_info["file_id"],
                     media_info["message_type"],
                     media_info["file_unique_id"]
                 )
-                media_info["stored_path"] = stored_path
 
             old_text = ""
             old_preview = "Не было сохранено"
@@ -711,47 +528,44 @@ async def telegram_webhook(
                 old_text = old.get("text") or old.get("caption") or ""
                 old_preview = build_message_preview(old)
 
-            saved_messages[key] = {
-                "connection_id": bc_id,
-                "chat_id": chat_id,
-                "message_id": message_id,
-                "user_label": user_label,
-                "previous_text": old_text,
-                **media_info
-            }
-            save_json(DATA_FILE, saved_messages)
-
             new_text = media_info.get("text") or media_info.get("caption") or ""
             new_preview = build_message_preview(media_info)
 
+            saved_messages[key] = {
+                "business_connection_id": bc_id,
+                "owner_chat_id": get_owner_chat_id(bc_id, fallback_chat_id=chat_id),
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "user_label": user_label,
+                **media_info
+            }
+            save_json(MESSAGES_FILE, saved_messages)
+
             if old and old.get("message_type") == "text" and media_info.get("message_type") == "text":
-                send_to_business_owner_text(
-                    msg,
-                    build_edited_text_message(user_label, old_text, new_text)
+                safe_notify_owner(
+                    bc_id,
+                    build_edited_text_message(user_label, old_text, new_text),
+                    fallback_chat_id=get_owner_chat_id(bc_id, fallback_chat_id=chat_id)
                 )
             else:
-                send_to_business_owner_text(
-                    msg,
-                    build_edited_media_message(user_label, old_preview, new_preview)
+                safe_notify_owner(
+                    bc_id,
+                    build_edited_media_message(user_label, old_preview, new_preview),
+                    fallback_chat_id=get_owner_chat_id(bc_id, fallback_chat_id=chat_id)
                 )
 
         elif "deleted_business_messages" in update:
             deleted = update["deleted_business_messages"]
             bc_id = deleted.get("business_connection_id")
             chat_id = (deleted.get("chat") or {}).get("id")
+            owner_chat_id = get_owner_chat_id(bc_id, fallback_chat_id=chat_id)
 
-            if bc_id:
-                store_connection_info(
-                    business_connection_id=bc_id,
-                    user_chat_id=chat_id
-                )
-
-            for message_id in deleted.get("message_ids", []):
-                key = make_key(bc_id, chat_id, message_id)
-                found_key, old = find_saved_message(bc_id, chat_id, message_id)
+            for mid in deleted.get("message_ids", []):
+                key = message_key(chat_id, mid)
+                old = saved_messages.get(key)
 
                 if not old:
-                    print("DELETE MISS:", {"bc_id": bc_id, "chat_id": chat_id, "message_id": message_id})
+                    print("DELETE MISS:", {"chat_id": chat_id, "message_id": mid, "business_connection_id": bc_id})
                     continue
 
                 user_label = old.get("user_label", "Пользователь")
@@ -759,34 +573,20 @@ async def telegram_webhook(
                 stored_path = old.get("stored_path")
                 caption = build_deleted_caption(user_label)
 
-                route_obj = {
-                    "business_connection_id": bc_id,
-                    "chat": {"id": chat_id}
-                }
-
                 if message_type == "photo" and stored_path and os.path.exists(stored_path):
-                    send_to_business_owner_photo(route_obj, stored_path, caption=caption)
+                    safe_notify_owner_photo(bc_id, stored_path, caption=caption, fallback_chat_id=owner_chat_id)
 
                 elif message_type == "video" and stored_path and os.path.exists(stored_path):
-                    send_to_business_owner_video(route_obj, stored_path, caption=caption)
+                    safe_notify_owner_video(bc_id, stored_path, caption=caption, fallback_chat_id=owner_chat_id)
 
-                elif message_type == "voice" and stored_path and os.path.exists(stored_path):
-                    send_to_business_owner_voice(route_obj, stored_path, caption=caption)
-
-                elif message_type == "video_note" and stored_path and os.path.exists(stored_path):
-                    send_to_business_owner_text(
-                        route_obj,
-                        f"🗑 <b>{escape_text(user_label)}</b> <b>УДАЛИЛ(А) КРУЖОК</b>"
-                    )
-                    send_to_business_owner_video_note(route_obj, stored_path)
-
-                elif message_type in ["document", "animation", "audio", "sticker"] and stored_path and os.path.exists(stored_path):
-                    send_to_business_owner_document(route_obj, stored_path, caption=caption)
+                elif message_type in ["document", "voice"] and stored_path and os.path.exists(stored_path):
+                    safe_notify_owner_document(bc_id, stored_path, caption=caption, fallback_chat_id=owner_chat_id)
 
                 else:
-                    send_to_business_owner_text(
-                        route_obj,
-                        build_deleted_text_message(user_label, build_message_preview(old))
+                    safe_notify_owner(
+                        bc_id,
+                        build_deleted_text_message(user_label, build_message_preview(old)),
+                        fallback_chat_id=owner_chat_id
                     )
 
         elif "message" in update:
@@ -797,17 +597,16 @@ async def telegram_webhook(
             if text == "/start" and chat_id:
                 send_message(
                     chat_id,
-                    "✅ <b>SnapSave Bot работает.</b>\n\n"
-                    "Подключи бота через Telegram Business → Chatbots, "
-                    "и уведомления о редактировании, удалении и reply-медиа "
-                    "будут приходить в этот чат."
+                    "✅ <b>Бот работает.</b>\n\n"
+                    "Подключи его через Telegram Business → Chatbots.\n"
+                    "После подключения все изменения по сообщениям будут приходить сюда."
                 )
 
             elif text == "/help" and chat_id:
                 send_message(
                     chat_id,
-                    "Доступно:\n"
-                    "• /start — запустить бота\n"
+                    "Команды:\n"
+                    "• /start — запуск\n"
                     "• /help — помощь"
                 )
 
@@ -818,8 +617,8 @@ async def telegram_webhook(
         if ADMIN_CHAT_ID:
             try:
                 send_message(
-                    ADMIN_CHAT_ID,
-                    f"❌ <b>Webhook error:</b>\n<pre>{escape_text(str(e))}</pre>"
+                    int(ADMIN_CHAT_ID),
+                    f"❌ <b>Webhook error</b>\n<pre>{escape_text(str(e))}</pre>"
                 )
             except Exception:
                 pass
