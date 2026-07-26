@@ -206,15 +206,16 @@ def get_reply_preview(reply_to):
     if reply_to.get("sticker"):
         return "[sticker]"
 
-    return "Сообщение без текстового превью"
+    return None
 
 
-def is_probably_disappearing_reply(reply_to):
+def is_normal_reply_message(reply_to):
     if not reply_to:
         return False
 
-    # Если у reply есть обычные медиа-поля — это обычное сообщение, не тревожим.
-    if any([
+    return any([
+        reply_to.get("text"),
+        reply_to.get("caption"),
         reply_to.get("photo"),
         reply_to.get("video"),
         reply_to.get("video_note"),
@@ -223,14 +224,42 @@ def is_probably_disappearing_reply(reply_to):
         reply_to.get("audio"),
         reply_to.get("animation"),
         reply_to.get("sticker"),
-        reply_to.get("text"),
-        reply_to.get("caption"),
-    ]):
+    ])
+
+
+def is_probably_disappearing_reply(reply_to):
+    if not reply_to:
         return False
 
-    # Если есть reply_to_message, но внутри нет нормального содержимого,
-    # считаем это подозрительным случаем: исчезающее / одноразовое / недоступное содержимое.
+    if is_normal_reply_message(reply_to):
+        return False
+
     return True
+
+
+def extract_reply_media(reply_to):
+    if not reply_to:
+        return None
+
+    if reply_to.get("photo"):
+        largest = reply_to["photo"][-1]
+        return {
+            "message_type": "photo",
+            "file_id": largest.get("file_id"),
+            "file_unique_id": largest.get("file_unique_id"),
+            "caption": reply_to.get("caption", "")
+        }
+
+    if reply_to.get("video"):
+        video = reply_to["video"]
+        return {
+            "message_type": "video",
+            "file_id": video.get("file_id"),
+            "file_unique_id": video.get("file_unique_id"),
+            "caption": reply_to.get("caption", "")
+        }
+
+    return None
 
 
 def extract_media_info(msg):
@@ -247,6 +276,7 @@ def extract_media_info(msg):
         "reply_to_message_id": None,
         "reply_to_preview": None,
         "reply_is_disappearing": False,
+        "reply_debug_raw": None,
     }
 
     reply_to = msg.get("reply_to_message")
@@ -254,6 +284,10 @@ def extract_media_info(msg):
         result["reply_to_message_id"] = reply_to.get("message_id")
         result["reply_to_preview"] = get_reply_preview(reply_to)
         result["reply_is_disappearing"] = is_probably_disappearing_reply(reply_to)
+        try:
+            result["reply_debug_raw"] = json.dumps(reply_to, ensure_ascii=False)
+        except Exception:
+            result["reply_debug_raw"] = str(reply_to)
 
     if msg.get("text"):
         result["message_type"] = "text"
@@ -351,45 +385,92 @@ def build_message_preview(item):
 def quote_box(text):
     text = str(text or "—").strip()
     lines = text.split("\n")
-    return "\n".join([f"┃ {escape_text(line)}" for line in lines])
+    return "\n".join([f"┃ <b>{escape_text(line)}</b>" for line in lines])
 
 
 def build_edited_text_message(user_label, old_text, new_text):
     return (
-        f"✏️ <b>{escape_text(user_label)}</b> <b>изменил(а) сообщение:</b>\n\n"
-        f"<b>Old:</b>\n"
+        f"✏️ <b>{escape_text(user_label)}</b> <b>ИЗМЕНИЛ(А) СООБЩЕНИЕ</b>\n\n"
+        f"<b>OLD:</b>\n"
         f"{quote_box(old_text or '—')}\n\n"
-        f"<b>New:</b>\n"
+        f"<b>NEW:</b>\n"
         f"{quote_box(new_text or '—')}"
     )
 
 
 def build_edited_media_message(user_label, old_preview, new_preview):
     return (
-        f"✏️ <b>{escape_text(user_label)}</b> <b>изменил(а) сообщение:</b>\n\n"
-        f"<b>Old:</b>\n"
+        f"✏️ <b>{escape_text(user_label)}</b> <b>ИЗМЕНИЛ(А) СООБЩЕНИЕ</b>\n\n"
+        f"<b>OLD:</b>\n"
         f"{quote_box(old_preview or '—')}\n\n"
-        f"<b>New:</b>\n"
+        f"<b>NEW:</b>\n"
         f"{quote_box(new_preview or '—')}"
     )
 
 
 def build_deleted_text_message(user_label, preview):
     return (
-        f"🗑 <b>{escape_text(user_label)}</b> <b>удалил(а) сообщение:</b>\n\n"
+        f"🗑 <b>{escape_text(user_label)}</b> <b>УДАЛИЛ(А) СООБЩЕНИЕ</b>\n\n"
         f"{quote_box(preview or '—')}"
     )
 
 
 def build_deleted_caption(user_label):
-    return f"🗑 <b>{escape_text(user_label)}</b> <b>удалил(а) сообщение:</b>"
+    return f"🗑 <b>{escape_text(user_label)}</b> <b>УДАЛИЛ(А) СООБЩЕНИЕ</b>"
 
 
 def build_disappearing_reply_notice(user_label, reply_preview):
     return (
-        f"👁 <b>{escape_text(user_label)}</b> <b>ответил(а) на исчезающее или одноразовое сообщение:</b>\n\n"
-        f"{quote_box(reply_preview or 'Одноразовое/исчезающее сообщение без превью')}"
+        f"👁 <b>{escape_text(user_label)}</b> <b>ОТВЕТИЛ(А) НА ОДНОРАЗОВОЕ / НЕДОСТУПНОЕ СООБЩЕНИЕ</b>\n\n"
+        f"{quote_box(reply_preview or 'Содержимое недоступно через Bot API')}"
     )
+
+
+def build_disappearing_debug_message(user_label, raw_reply):
+    raw_reply = escape_text(raw_reply or "Нет данных")
+    if len(raw_reply) > 3000:
+        raw_reply = raw_reply[:3000] + "\n...TRUNCATED..."
+    return (
+        f"🛠 <b>DEBUG reply_to_message для {escape_text(user_label)}</b>\n\n"
+        f"<pre>{raw_reply}</pre>"
+    )
+
+
+def auto_forward_reply_media_to_admin(user_label, reply_to):
+    if not ADMIN_CHAT_ID or not reply_to:
+        return False
+
+    reply_media = extract_reply_media(reply_to)
+    if not reply_media:
+        return False
+
+    file_id = reply_media.get("file_id")
+    file_unique_id = reply_media.get("file_unique_id")
+    message_type = reply_media.get("message_type")
+    caption = reply_media.get("caption") or ""
+
+    if not file_id or not file_unique_id:
+        return False
+
+    stored_path = download_file(file_id, f"reply_{message_type}", file_unique_id)
+    if not stored_path or not os.path.exists(stored_path):
+        return False
+
+    admin_caption = (
+        f"💾 <b>{escape_text(user_label)}</b> <b>ОТВЕТИЛ(А) НА REPLY-МЕДИА / СООБЩЕНИЕ С ТАЙМЕРОМ</b>\n\n"
+        f"<b>СОХРАНЕНО АВТОМАТИЧЕСКИ</b>\n"
+        f"{quote_box(caption or 'Без подписи')}"
+    )
+
+    if message_type == "photo":
+        send_photo(ADMIN_CHAT_ID, stored_path, caption=admin_caption)
+        return True
+
+    if message_type == "video":
+        send_video(ADMIN_CHAT_ID, stored_path, caption=admin_caption)
+        return True
+
+    return False
 
 
 @app.post("/webhook")
@@ -428,11 +509,24 @@ async def telegram_webhook(
             }
             save_messages(saved_messages)
 
-            if ADMIN_CHAT_ID and media_info.get("reply_is_disappearing"):
+            reply_to = msg.get("reply_to_message")
+            auto_saved = False
+
+            if reply_to:
+                print("REPLY_TO_MESSAGE RAW:", media_info.get("reply_debug_raw"))
+                auto_saved = auto_forward_reply_media_to_admin(user_label, reply_to)
+
+            if ADMIN_CHAT_ID and media_info.get("reply_is_disappearing") and not auto_saved:
                 send_message(
                     ADMIN_CHAT_ID,
                     build_disappearing_reply_notice(user_label, media_info.get("reply_to_preview"))
                 )
+
+                if media_info.get("reply_debug_raw"):
+                    send_message(
+                        ADMIN_CHAT_ID,
+                        build_disappearing_debug_message(user_label, media_info.get("reply_debug_raw"))
+                    )
 
         elif update.get("edited_business_message"):
             msg = update["edited_business_message"]
@@ -504,7 +598,7 @@ async def telegram_webhook(
                             send_voice(ADMIN_CHAT_ID, stored_path, caption=caption)
 
                         elif message_type == "video_note" and stored_path and os.path.exists(stored_path):
-                            send_message(ADMIN_CHAT_ID, f"🗑 <b>{escape_text(user_label)}</b> <b>удалил(а) кружок:</b>")
+                            send_message(ADMIN_CHAT_ID, f"🗑 <b>{escape_text(user_label)}</b> <b>УДАЛИЛ(А) КРУЖОК</b>")
                             send_video_note(ADMIN_CHAT_ID, stored_path)
 
                         elif message_type in ["document", "animation", "audio", "sticker"] and stored_path and os.path.exists(stored_path):
@@ -518,7 +612,7 @@ async def telegram_webhook(
                     else:
                         send_message(
                             ADMIN_CHAT_ID,
-                            "🗑 <b>Сообщение было удалено, но оно не было сохранено заранее.</b>"
+                            "🗑 <b>СООБЩЕНИЕ БЫЛО УДАЛЕНО, НО ОНО НЕ БЫЛО СОХРАНЕНО ЗАРАНЕЕ</b>"
                         )
 
         return {"ok": True}
