@@ -43,7 +43,7 @@ saved_connections = load_json(CONNECTIONS_FILE)
 
 @app.get("/")
 async def root():
-    return {"ok": True, "service": "telegram-business-multiuser-private-notifier"}
+    return {"ok": True, "service": "snapsaveguard-bot"}
 
 
 @app.get("/health")
@@ -217,12 +217,7 @@ def get_user_label(user) -> str:
     return str(user.get("id", "unknown"))
 
 
-def store_connection(
-    business_connection_id: str,
-    user_chat_id=None,
-    user_obj=None,
-    is_enabled=None
-):
+def store_connection(business_connection_id: str, user_chat_id=None, user_obj=None, is_enabled=None):
     if not business_connection_id:
         return
 
@@ -487,9 +482,10 @@ async def telegram_webhook(
 
     try:
         update = await request.json()
-        print("UPDATE:", update)
+        print("UPDATE RAW:", update)
 
         if "business_connection" in update:
+            print("BUSINESS_CONNECTION HIT")
             bc = update["business_connection"]
             bc_id = bc.get("id")
             user_chat_id = bc.get("user_chat_id")
@@ -512,6 +508,7 @@ async def telegram_webhook(
                 )
 
         elif "business_message" in update:
+            print("BUSINESS_MESSAGE HIT")
             msg = update["business_message"]
             bc_id = msg.get("business_connection_id")
             chat_id = (msg.get("chat") or {}).get("id")
@@ -542,6 +539,7 @@ async def telegram_webhook(
                 auto_forward_reply_media(bc_id, user_label, reply_to)
 
         elif "edited_business_message" in update:
+            print("EDITED_BUSINESS_MESSAGE HIT")
             msg = update["edited_business_message"]
             bc_id = msg.get("business_connection_id")
             chat_id = (msg.get("chat") or {}).get("id")
@@ -580,17 +578,12 @@ async def telegram_webhook(
 
             if bc_id:
                 if old and old.get("message_type") == "text" and media_info.get("message_type") == "text":
-                    notify_user_text(
-                        bc_id,
-                        build_edited_text_message(user_label, old_text, new_text)
-                    )
+                    notify_user_text(bc_id, build_edited_text_message(user_label, old_text, new_text))
                 else:
-                    notify_user_text(
-                        bc_id,
-                        build_edited_media_message(user_label, old_preview, new_preview)
-                    )
+                    notify_user_text(bc_id, build_edited_media_message(user_label, old_preview, new_preview))
 
         elif "deleted_business_messages" in update:
+            print("DELETED_BUSINESS_MESSAGES HIT")
             deleted = update["deleted_business_messages"]
             bc_id = deleted.get("business_connection_id")
             chat_id = (deleted.get("chat") or {}).get("id")
@@ -611,25 +604,22 @@ async def telegram_webhook(
                 if bc_id:
                     if message_type == "photo" and stored_path and os.path.exists(stored_path):
                         notify_user_photo(bc_id, stored_path, caption=caption)
-
                     elif message_type == "video" and stored_path and os.path.exists(stored_path):
                         notify_user_video(bc_id, stored_path, caption=caption)
-
                     elif message_type in ["document", "voice"] and stored_path and os.path.exists(stored_path):
                         notify_user_document(bc_id, stored_path, caption=caption)
-
                     else:
-                        notify_user_text(
-                            bc_id,
-                            build_deleted_text_message(user_label, build_message_preview(old))
-                        )
+                        notify_user_text(bc_id, build_deleted_text_message(user_label, build_message_preview(old)))
 
         elif "message" in update:
+            print("MESSAGE UPDATE HIT")
             msg = update["message"]
             chat_id = (msg.get("chat") or {}).get("id")
             text = (msg.get("text") or "").strip().lower()
+            print("TEXT:", text)
 
             if text == "/start" and chat_id:
+                print("START COMMAND HIT")
                 guide_path = "start_guide.png"
 
                 start_caption = (
@@ -645,23 +635,15 @@ async def telegram_webhook(
                 )
 
                 buttons = [
-                    [
-                        {
-                            "text": "🟢 Подключить",
-                            "url": "https://t.me/snapsaveguard_bot"
-                        }
-                    ],
-                    [
-                        {
-                            "text": "🎥 Демонстрация работы",
-                            "url": "https://t.me/snapsaveguard_bot"
-                        }
-                    ]
+                    [{"text": "🟢 Подключить", "url": "https://t.me/snapsaveguard_bot"}],
+                    [{"text": "🎥 Демонстрация работы", "url": "https://t.me/snapsaveguard_bot"}]
                 ]
 
                 if os.path.exists(guide_path):
+                    print("START IMAGE FOUND")
                     send_photo_with_buttons(chat_id, guide_path, caption=start_caption, buttons=buttons)
                 else:
+                    print("START IMAGE NOT FOUND")
                     send_message_with_buttons(chat_id, start_caption, buttons)
 
             elif text == "/help" and chat_id:
@@ -671,6 +653,9 @@ async def telegram_webhook(
                     "• /start — запуск\n"
                     "• /help — помощь"
                 )
+
+        else:
+            print("UNKNOWN UPDATE TYPE")
 
         return {"ok": True}
 
