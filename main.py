@@ -43,12 +43,12 @@ saved_connections = load_json(CONNECTIONS_FILE)
 
 @app.get("/")
 async def root():
-    return {"ok": True, "service": "telegram-business-multiuser-private-notifier"}  # [web:56]
+    return {"ok": True, "service": "telegram-business-multiuser-private-notifier"}
 
 
 @app.get("/health")
 async def health():
-    return {"ok": True}  # [web:56]
+    return {"ok": True}
 
 
 def escape_text(value) -> str:
@@ -80,7 +80,7 @@ def send_message(chat_id: int, text: str):
     })
 
 
-def send_message_with_buttons(chat_id: int, text: str, buttons: list):
+def send_message_with_buttons(chat_id: int, text: str, buttons):
     return tg_api("sendMessage", data={
         "chat_id": chat_id,
         "text": text,
@@ -106,7 +106,7 @@ def send_photo(chat_id: int, photo_path: str, caption: str = ""):
     return result
 
 
-def send_photo_with_buttons(chat_id: int, photo_path: str, caption: str = "", buttons: list | None = None):
+def send_photo_with_buttons(chat_id: int, photo_path: str, caption: str = "", buttons=None):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
     data = {
         "chat_id": chat_id,
@@ -508,8 +508,7 @@ async def telegram_webhook(
                 notify_user_text(
                     bc_id,
                     "✅ <b>Бот подключён.</b>\n\n"
-                    "Теперь все удалённые, изменённые сообщения и сохранённые reply-медиа "
-                    "будут приходить сюда, в ЛС с ботом."
+                    "Теперь уведомления об удалённых, изменённых сообщениях и сохранённых reply-медиа будут приходить сюда."
                 )
 
         elif "business_message" in update:
@@ -634,18 +633,15 @@ async def telegram_webhook(
                 guide_path = "start_guide.png"
 
                 start_caption = (
-                    "Привет! Это <b>SnapSaveGuard</b>.\n"
-                    "Бот помогает отслеживать важные изменения в переписке и сохраняет нужные медиа прямо в этом чате.\n\n"
-                    "<b>Что умеет бот:</b>\n"
-                    "• Присылает уведомление, если сообщение было удалено или изменено.\n"
-                    "• Сохраняет reply-медиа и поддерживает контент с таймером: фото, видео, голосовые и видеосообщения.\n"
-                    "• Все уведомления приходят сюда, в личный чат с ботом.\n\n"
-                    "🔹 <b>Как подключить бота:</b>\n"
-                    "1. Нажмите кнопку <b>«Подключить»</b> ниже.\n"
-                    "2. Откройте раздел <b>Telegram Business → Чат-боты</b>.\n"
-                    "3. Введите username: <code>@snapsaveguard_bot</code>.\n\n"
-                    "<b>После подключения:</b>\n"
-                    "бот начнёт отправлять сюда уведомления об удалённых и изменённых сообщениях."
+                    "Привет! Это <b>SnapSaveGuard</b>.\n\n"
+                    "Бот помогает отслеживать изменения в переписке и сохранять важные медиа.\n\n"
+                    "<b>Что умеет:</b>\n"
+                    "• Уведомляет об удалённых и изменённых сообщениях.\n"
+                    "• Сохраняет reply-медиа и файлы с таймером.\n\n"
+                    "<b>Как подключить:</b>\n"
+                    "1. Нажмите <b>«Подключить»</b>.\n"
+                    "2. Откройте <b>Telegram Business → Чат-боты</b>.\n"
+                    "3. Введите <code>@snapsaveguard_bot</code>."
                 )
 
                 buttons = [
