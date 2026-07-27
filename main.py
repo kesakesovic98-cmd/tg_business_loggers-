@@ -43,12 +43,12 @@ saved_connections = load_json(CONNECTIONS_FILE)
 
 @app.get("/")
 async def root():
-    return {"ok": True, "service": "telegram-business-multiuser-private-notifier"}
+    return {"ok": True, "service": "telegram-business-multiuser-private-notifier"}  # [web:56]
 
 
 @app.get("/health")
 async def health():
-    return {"ok": True}
+    return {"ok": True}  # [web:56]
 
 
 def escape_text(value) -> str:
@@ -80,6 +80,15 @@ def send_message(chat_id: int, text: str):
     })
 
 
+def send_message_with_buttons(chat_id: int, text: str, buttons: list):
+    return tg_api("sendMessage", data={
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "HTML",
+        "reply_markup": json.dumps({"inline_keyboard": buttons}, ensure_ascii=False)
+    })
+
+
 def send_photo(chat_id: int, photo_path: str, caption: str = ""):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
     data = {
@@ -94,6 +103,28 @@ def send_photo(chat_id: int, photo_path: str, caption: str = ""):
     except Exception:
         result = {"ok": False, "status_code": response.status_code, "text": response.text}
     print("TG_API sendPhoto:", result)
+    return result
+
+
+def send_photo_with_buttons(chat_id: int, photo_path: str, caption: str = "", buttons: list | None = None):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
+    data = {
+        "chat_id": chat_id,
+        "caption": caption,
+        "parse_mode": "HTML"
+    }
+    if buttons:
+        data["reply_markup"] = json.dumps({"inline_keyboard": buttons}, ensure_ascii=False)
+
+    with open(photo_path, "rb") as f:
+        response = requests.post(url, data=data, files={"photo": f}, timeout=120)
+
+    try:
+        result = response.json()
+    except Exception:
+        result = {"ok": False, "status_code": response.status_code, "text": response.text}
+
+    print("TG_API sendPhotoWithButtons:", result)
     return result
 
 
@@ -600,12 +631,42 @@ async def telegram_webhook(
             text = (msg.get("text") or "").strip().lower()
 
             if text == "/start" and chat_id:
-                send_message(
-                    chat_id,
-                    "✅ <b>Бот работает.</b>\n\n"
-                    "Подключи его через Telegram Business → Chatbots.\n"
-                    "После подключения уведомления будут приходить сюда, в ЛС с ботом."
+                guide_path = "start_guide.png"
+
+                start_caption = (
+                    "Привет! Это <b>SnapSaveGuard</b>.\n"
+                    "Бот помогает отслеживать важные изменения в переписке и сохраняет нужные медиа прямо в этом чате.\n\n"
+                    "<b>Что умеет бот:</b>\n"
+                    "• Присылает уведомление, если сообщение было удалено или изменено.\n"
+                    "• Сохраняет reply-медиа и поддерживает контент с таймером: фото, видео, голосовые и видеосообщения.\n"
+                    "• Все уведомления приходят сюда, в личный чат с ботом.\n\n"
+                    "🔹 <b>Как подключить бота:</b>\n"
+                    "1. Нажмите кнопку <b>«Подключить»</b> ниже.\n"
+                    "2. Откройте раздел <b>Telegram Business → Чат-боты</b>.\n"
+                    "3. Введите username: <code>@snapsaveguard_bot</code>.\n\n"
+                    "<b>После подключения:</b>\n"
+                    "бот начнёт отправлять сюда уведомления об удалённых и изменённых сообщениях."
                 )
+
+                buttons = [
+                    [
+                        {
+                            "text": "🟢 Подключить",
+                            "url": "https://t.me/snapsaveguard_bot"
+                        }
+                    ],
+                    [
+                        {
+                            "text": "🎥 Демонстрация работы",
+                            "url": "https://t.me/snapsaveguard_bot"
+                        }
+                    ]
+                ]
+
+                if os.path.exists(guide_path):
+                    send_photo_with_buttons(chat_id, guide_path, caption=start_caption, buttons=buttons)
+                else:
+                    send_message_with_buttons(chat_id, start_caption, buttons)
 
             elif text == "/help" and chat_id:
                 send_message(
