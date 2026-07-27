@@ -43,7 +43,7 @@ saved_connections = load_json(CONNECTIONS_FILE)
 
 @app.get("/")
 async def root():
-    return {"ok": True, "service": "telegram-business-user-notifier"}
+    return {"ok": True, "service": "telegram-business-multiuser-bot"}
 
 
 @app.get("/health")
@@ -65,62 +65,89 @@ def tg_api(method: str, data=None, files=None):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/{method}"
     response = requests.post(url, data=data, files=files, timeout=120)
     try:
-        return response.json()
+        result = response.json()
     except Exception:
-        return {"ok": False, "status_code": response.status_code, "text": response.text}
+        result = {"ok": False, "status_code": response.status_code, "text": response.text}
+
+    print(f"TG_API {method}:", result)
+    return result
 
 
-def send_message(chat_id: int, text: str):
-    return tg_api("sendMessage", data={
+def send_message(chat_id: int, text: str, business_connection_id: Optional[str] = None):
+    data = {
         "chat_id": chat_id,
         "text": text,
         "parse_mode": "HTML"
-    })
+    }
+    if business_connection_id:
+        data["business_connection_id"] = business_connection_id
+    return tg_api("sendMessage", data=data)
 
 
-def send_photo(chat_id: int, photo_path: str, caption: str = ""):
+def send_photo(chat_id: int, photo_path: str, caption: str = "", business_connection_id: Optional[str] = None):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
     data = {
         "chat_id": chat_id,
         "caption": caption,
         "parse_mode": "HTML"
     }
+    if business_connection_id:
+        data["business_connection_id"] = business_connection_id
+
     with open(photo_path, "rb") as f:
         response = requests.post(url, data=data, files={"photo": f}, timeout=120)
+
     try:
-        return response.json()
+        result = response.json()
     except Exception:
-        return {"ok": False, "status_code": response.status_code, "text": response.text}
+        result = {"ok": False, "status_code": response.status_code, "text": response.text}
+
+    print("TG_API sendPhoto:", result)
+    return result
 
 
-def send_video(chat_id: int, video_path: str, caption: str = ""):
+def send_video(chat_id: int, video_path: str, caption: str = "", business_connection_id: Optional[str] = None):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendVideo"
     data = {
         "chat_id": chat_id,
         "caption": caption,
         "parse_mode": "HTML"
     }
+    if business_connection_id:
+        data["business_connection_id"] = business_connection_id
+
     with open(video_path, "rb") as f:
         response = requests.post(url, data=data, files={"video": f}, timeout=120)
+
     try:
-        return response.json()
+        result = response.json()
     except Exception:
-        return {"ok": False, "status_code": response.status_code, "text": response.text}
+        result = {"ok": False, "status_code": response.status_code, "text": response.text}
+
+    print("TG_API sendVideo:", result)
+    return result
 
 
-def send_document(chat_id: int, file_path: str, caption: str = ""):
+def send_document(chat_id: int, file_path: str, caption: str = "", business_connection_id: Optional[str] = None):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument"
     data = {
         "chat_id": chat_id,
         "caption": caption,
         "parse_mode": "HTML"
     }
+    if business_connection_id:
+        data["business_connection_id"] = business_connection_id
+
     with open(file_path, "rb") as f:
         response = requests.post(url, data=data, files={"document": f}, timeout=120)
+
     try:
-        return response.json()
+        result = response.json()
     except Exception:
-        return {"ok": False, "status_code": response.status_code, "text": response.text}
+        result = {"ok": False, "status_code": response.status_code, "text": response.text}
+
+    print("TG_API sendDocument:", result)
+    return result
 
 
 def get_file(file_id: str):
@@ -145,6 +172,7 @@ def download_file(file_id: str, prefix: str, unique_id: str):
 
         file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{remote_path}"
         response = requests.get(file_url, timeout=120)
+
         if response.status_code == 200:
             with open(local_path, "wb") as f:
                 f.write(response.content)
@@ -155,8 +183,8 @@ def download_file(file_id: str, prefix: str, unique_id: str):
     return None
 
 
-def message_key(chat_id, message_id) -> str:
-    return f"{chat_id}:{message_id}"
+def make_message_key(business_connection_id, chat_id, message_id) -> str:
+    return f"{business_connection_id}:{chat_id}:{message_id}"
 
 
 def get_user_label(user) -> str:
@@ -177,66 +205,81 @@ def get_user_label(user) -> str:
     return str(user.get("id", "unknown"))
 
 
-def store_connection(business_connection_id: str, user_chat_id: Optional[int], user_obj=None):
+def store_connection(business_connection_id: str, business_chat_id=None, user_chat_id=None, user_obj=None, is_enabled=None):
     if not business_connection_id:
         return
 
     item = saved_connections.get(business_connection_id, {})
+    if business_chat_id is not None:
+        item["business_chat_id"] = business_chat_id
     if user_chat_id is not None:
         item["user_chat_id"] = user_chat_id
     if user_obj is not None:
         item["user"] = user_obj
+    if is_enabled is not None:
+        item["is_enabled"] = is_enabled
 
     saved_connections[business_connection_id] = item
     save_json(CONNECTIONS_FILE, saved_connections)
 
 
-def get_owner_chat_id(business_connection_id: Optional[str], fallback_chat_id=None):
-    if business_connection_id and business_connection_id in saved_connections:
-        user_chat_id = saved_connections[business_connection_id].get("user_chat_id")
-        if user_chat_id:
-            return user_chat_id
-    return fallback_chat_id
+def get_connection(business_connection_id: Optional[str]):
+    if not business_connection_id:
+        return {}
+    return saved_connections.get(business_connection_id, {})
 
 
-def safe_notify_owner(business_connection_id: Optional[str], text: str, fallback_chat_id=None):
-    owner_chat_id = get_owner_chat_id(business_connection_id, fallback_chat_id=fallback_chat_id)
-    if not owner_chat_id:
-        print("NO OWNER CHAT:", {"business_connection_id": business_connection_id, "fallback_chat_id": fallback_chat_id})
+def notify_business_chat(business_connection_id: str, text: str, fallback_chat_id=None):
+    conn = get_connection(business_connection_id)
+    target_chat_id = conn.get("business_chat_id") or fallback_chat_id
+
+    if not target_chat_id:
+        print("NO BUSINESS CHAT:", {"business_connection_id": business_connection_id, "fallback_chat_id": fallback_chat_id})
         return None
-    result = send_message(owner_chat_id, text)
-    print("SEND RESULT:", result)
-    return result
+
+    return send_message(target_chat_id, text, business_connection_id=business_connection_id)
 
 
-def safe_notify_owner_photo(business_connection_id: Optional[str], photo_path: str, caption: str = "", fallback_chat_id=None):
-    owner_chat_id = get_owner_chat_id(business_connection_id, fallback_chat_id=fallback_chat_id)
-    if not owner_chat_id:
-        print("NO OWNER CHAT:", {"business_connection_id": business_connection_id, "fallback_chat_id": fallback_chat_id})
+def notify_business_chat_photo(business_connection_id: str, photo_path: str, caption: str = "", fallback_chat_id=None):
+    conn = get_connection(business_connection_id)
+    target_chat_id = conn.get("business_chat_id") or fallback_chat_id
+
+    if not target_chat_id:
+        print("NO BUSINESS CHAT:", {"business_connection_id": business_connection_id, "fallback_chat_id": fallback_chat_id})
         return None
-    result = send_photo(owner_chat_id, photo_path, caption=caption)
-    print("SEND PHOTO RESULT:", result)
-    return result
+
+    return send_photo(target_chat_id, photo_path, caption=caption, business_connection_id=business_connection_id)
 
 
-def safe_notify_owner_video(business_connection_id: Optional[str], video_path: str, caption: str = "", fallback_chat_id=None):
-    owner_chat_id = get_owner_chat_id(business_connection_id, fallback_chat_id=fallback_chat_id)
-    if not owner_chat_id:
-        print("NO OWNER CHAT:", {"business_connection_id": business_connection_id, "fallback_chat_id": fallback_chat_id})
+def notify_business_chat_video(business_connection_id: str, video_path: str, caption: str = "", fallback_chat_id=None):
+    conn = get_connection(business_connection_id)
+    target_chat_id = conn.get("business_chat_id") or fallback_chat_id
+
+    if not target_chat_id:
+        print("NO BUSINESS CHAT:", {"business_connection_id": business_connection_id, "fallback_chat_id": fallback_chat_id})
         return None
-    result = send_video(owner_chat_id, video_path, caption=caption)
-    print("SEND VIDEO RESULT:", result)
-    return result
+
+    return send_video(target_chat_id, video_path, caption=caption, business_connection_id=business_connection_id)
 
 
-def safe_notify_owner_document(business_connection_id: Optional[str], file_path: str, caption: str = "", fallback_chat_id=None):
-    owner_chat_id = get_owner_chat_id(business_connection_id, fallback_chat_id=fallback_chat_id)
-    if not owner_chat_id:
-        print("NO OWNER CHAT:", {"business_connection_id": business_connection_id, "fallback_chat_id": fallback_chat_id})
+def notify_business_chat_document(business_connection_id: str, file_path: str, caption: str = "", fallback_chat_id=None):
+    conn = get_connection(business_connection_id)
+    target_chat_id = conn.get("business_chat_id") or fallback_chat_id
+
+    if not target_chat_id:
+        print("NO BUSINESS CHAT:", {"business_connection_id": business_connection_id, "fallback_chat_id": fallback_chat_id})
         return None
-    result = send_document(owner_chat_id, file_path, caption=caption)
-    print("SEND DOCUMENT RESULT:", result)
-    return result
+
+    return send_document(target_chat_id, file_path, caption=caption, business_connection_id=business_connection_id)
+
+
+def notify_user_private_chat(business_connection_id: str, text: str):
+    conn = get_connection(business_connection_id)
+    user_chat_id = conn.get("user_chat_id")
+    if not user_chat_id:
+        print("NO USER CHAT:", {"business_connection_id": business_connection_id})
+        return None
+    return send_message(user_chat_id, text)
 
 
 def get_reply_preview(reply_to):
@@ -401,7 +444,7 @@ def build_reply_saved_caption(user_label: str, caption: str) -> str:
     )
 
 
-def auto_forward_reply_media_to_owner(business_connection_id: Optional[str], fallback_chat_id, user_label: str, reply_to):
+def auto_forward_reply_media(business_connection_id: str, fallback_chat_id, user_label: str, reply_to):
     reply_media = extract_reply_media(reply_to)
     if not reply_media:
         return False
@@ -421,15 +464,15 @@ def auto_forward_reply_media_to_owner(business_connection_id: Optional[str], fal
     notify_caption = build_reply_saved_caption(user_label, caption)
 
     if message_type == "photo":
-        safe_notify_owner_photo(business_connection_id, stored_path, caption=notify_caption, fallback_chat_id=fallback_chat_id)
+        notify_business_chat_photo(business_connection_id, stored_path, caption=notify_caption, fallback_chat_id=fallback_chat_id)
         return True
 
     if message_type == "video":
-        safe_notify_owner_video(business_connection_id, stored_path, caption=notify_caption, fallback_chat_id=fallback_chat_id)
+        notify_business_chat_video(business_connection_id, stored_path, caption=notify_caption, fallback_chat_id=fallback_chat_id)
         return True
 
     if message_type == "document":
-        safe_notify_owner_document(business_connection_id, stored_path, caption=notify_caption, fallback_chat_id=fallback_chat_id)
+        notify_business_chat_document(business_connection_id, stored_path, caption=notify_caption, fallback_chat_id=fallback_chat_id)
         return True
 
     return False
@@ -452,16 +495,22 @@ async def telegram_webhook(
             bc_id = bc.get("id")
             user_chat_id = bc.get("user_chat_id")
             user_obj = bc.get("user")
+            is_enabled = bc.get("is_enabled")
 
             if bc_id:
-                store_connection(bc_id, user_chat_id, user_obj)
+                store_connection(
+                    business_connection_id=bc_id,
+                    user_chat_id=user_chat_id,
+                    user_obj=user_obj,
+                    is_enabled=is_enabled
+                )
 
-            if bc.get("is_enabled") and user_chat_id:
-                send_message(
-                    user_chat_id,
+            if bc_id and user_chat_id and is_enabled:
+                notify_user_private_chat(
+                    bc_id,
                     "✅ <b>Бот подключён.</b>\n\n"
-                    "Теперь удалённые, изменённые сообщения и сохранённые reply-медиа "
-                    "будут приходить сюда, в этот чат с ботом."
+                    "Теперь уведомления об удалённых, изменённых сообщениях и сохранённых reply-медиа "
+                    "будут работать для этого подключения."
                 )
 
         elif "business_message" in update:
@@ -472,8 +521,11 @@ async def telegram_webhook(
             user_label = get_user_label(msg.get("from"))
 
             if bc_id:
-                owner_chat_id = get_owner_chat_id(bc_id, fallback_chat_id=chat_id)
-                store_connection(bc_id, owner_chat_id, msg.get("from"))
+                store_connection(
+                    business_connection_id=bc_id,
+                    business_chat_id=chat_id,
+                    user_obj=msg.get("from")
+                )
 
             media_info = extract_media_info(msg)
 
@@ -484,9 +536,9 @@ async def telegram_webhook(
                     media_info["file_unique_id"]
                 )
 
-            saved_messages[message_key(chat_id, message_id)] = {
+            key = make_message_key(bc_id, chat_id, message_id)
+            saved_messages[key] = {
                 "business_connection_id": bc_id,
-                "owner_chat_id": get_owner_chat_id(bc_id, fallback_chat_id=chat_id),
                 "chat_id": chat_id,
                 "message_id": message_id,
                 "user_label": user_label,
@@ -495,23 +547,25 @@ async def telegram_webhook(
             save_json(MESSAGES_FILE, saved_messages)
 
             reply_to = msg.get("reply_to_message")
-            if reply_to:
-                auto_forward_reply_media_to_owner(
-                    bc_id,
-                    get_owner_chat_id(bc_id, fallback_chat_id=chat_id),
-                    user_label,
-                    reply_to
-                )
+            if reply_to and bc_id:
+                auto_forward_reply_media(bc_id, chat_id, user_label, reply_to)
 
         elif "edited_business_message" in update:
             msg = update["edited_business_message"]
             bc_id = msg.get("business_connection_id")
             chat_id = (msg.get("chat") or {}).get("id")
             message_id = msg.get("message_id")
-            key = message_key(chat_id, message_id)
-
-            old = saved_messages.get(key)
             user_label = get_user_label(msg.get("from"))
+
+            if bc_id:
+                store_connection(
+                    business_connection_id=bc_id,
+                    business_chat_id=chat_id,
+                    user_obj=msg.get("from")
+                )
+
+            key = make_message_key(bc_id, chat_id, message_id)
+            old = saved_messages.get(key)
             media_info = extract_media_info(msg)
 
             if media_info["file_id"] and media_info["file_unique_id"]:
@@ -533,7 +587,6 @@ async def telegram_webhook(
 
             saved_messages[key] = {
                 "business_connection_id": bc_id,
-                "owner_chat_id": get_owner_chat_id(bc_id, fallback_chat_id=chat_id),
                 "chat_id": chat_id,
                 "message_id": message_id,
                 "user_label": user_label,
@@ -541,31 +594,37 @@ async def telegram_webhook(
             }
             save_json(MESSAGES_FILE, saved_messages)
 
-            if old and old.get("message_type") == "text" and media_info.get("message_type") == "text":
-                safe_notify_owner(
-                    bc_id,
-                    build_edited_text_message(user_label, old_text, new_text),
-                    fallback_chat_id=get_owner_chat_id(bc_id, fallback_chat_id=chat_id)
-                )
-            else:
-                safe_notify_owner(
-                    bc_id,
-                    build_edited_media_message(user_label, old_preview, new_preview),
-                    fallback_chat_id=get_owner_chat_id(bc_id, fallback_chat_id=chat_id)
-                )
+            if bc_id:
+                if old and old.get("message_type") == "text" and media_info.get("message_type") == "text":
+                    notify_business_chat(
+                        bc_id,
+                        build_edited_text_message(user_label, old_text, new_text),
+                        fallback_chat_id=chat_id
+                    )
+                else:
+                    notify_business_chat(
+                        bc_id,
+                        build_edited_media_message(user_label, old_preview, new_preview),
+                        fallback_chat_id=chat_id
+                    )
 
         elif "deleted_business_messages" in update:
             deleted = update["deleted_business_messages"]
             bc_id = deleted.get("business_connection_id")
             chat_id = (deleted.get("chat") or {}).get("id")
-            owner_chat_id = get_owner_chat_id(bc_id, fallback_chat_id=chat_id)
+
+            if bc_id:
+                store_connection(
+                    business_connection_id=bc_id,
+                    business_chat_id=chat_id
+                )
 
             for mid in deleted.get("message_ids", []):
-                key = message_key(chat_id, mid)
+                key = make_message_key(bc_id, chat_id, mid)
                 old = saved_messages.get(key)
 
                 if not old:
-                    print("DELETE MISS:", {"chat_id": chat_id, "message_id": mid, "business_connection_id": bc_id})
+                    print("DELETE MISS:", {"business_connection_id": bc_id, "chat_id": chat_id, "message_id": mid})
                     continue
 
                 user_label = old.get("user_label", "Пользователь")
@@ -573,21 +632,22 @@ async def telegram_webhook(
                 stored_path = old.get("stored_path")
                 caption = build_deleted_caption(user_label)
 
-                if message_type == "photo" and stored_path and os.path.exists(stored_path):
-                    safe_notify_owner_photo(bc_id, stored_path, caption=caption, fallback_chat_id=owner_chat_id)
+                if bc_id:
+                    if message_type == "photo" and stored_path and os.path.exists(stored_path):
+                        notify_business_chat_photo(bc_id, stored_path, caption=caption, fallback_chat_id=chat_id)
 
-                elif message_type == "video" and stored_path and os.path.exists(stored_path):
-                    safe_notify_owner_video(bc_id, stored_path, caption=caption, fallback_chat_id=owner_chat_id)
+                    elif message_type == "video" and stored_path and os.path.exists(stored_path):
+                        notify_business_chat_video(bc_id, stored_path, caption=caption, fallback_chat_id=chat_id)
 
-                elif message_type in ["document", "voice"] and stored_path and os.path.exists(stored_path):
-                    safe_notify_owner_document(bc_id, stored_path, caption=caption, fallback_chat_id=owner_chat_id)
+                    elif message_type in ["document", "voice"] and stored_path and os.path.exists(stored_path):
+                        notify_business_chat_document(bc_id, stored_path, caption=caption, fallback_chat_id=chat_id)
 
-                else:
-                    safe_notify_owner(
-                        bc_id,
-                        build_deleted_text_message(user_label, build_message_preview(old)),
-                        fallback_chat_id=owner_chat_id
-                    )
+                    else:
+                        notify_business_chat(
+                            bc_id,
+                            build_deleted_text_message(user_label, build_message_preview(old)),
+                            fallback_chat_id=chat_id
+                        )
 
         elif "message" in update:
             msg = update["message"]
@@ -599,7 +659,7 @@ async def telegram_webhook(
                     chat_id,
                     "✅ <b>Бот работает.</b>\n\n"
                     "Подключи его через Telegram Business → Chatbots.\n"
-                    "После подключения все изменения по сообщениям будут приходить сюда."
+                    "После подключения бот будет работать отдельно для каждого пользователя."
                 )
 
             elif text == "/help" and chat_id:
