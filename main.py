@@ -15,6 +15,9 @@ if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is not set")
 
 app = FastAPI()
+@app.get("/healthz")
+async def healthz():
+    return {"status": "OK"}
 
 MESSAGES_FILE = "messages.json"
 CONNECTIONS_FILE = "connections.json"
