@@ -10,14 +10,12 @@ from fastapi import FastAPI, Request, Header, HTTPException
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "").strip()
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", "").strip()
+RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "https://tg-business-loggers.onrender.com").strip()
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is not set")
 
 app = FastAPI()
-@app.get("/healthz")
-async def healthz():
-    return {"status": "OK"}
 
 MESSAGES_FILE = "messages.json"
 CONNECTIONS_FILE = "connections.json"
@@ -31,13 +29,17 @@ def load_json(path: str):
     try:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
-    except Exception:
+    except Exception as e:
+        print(f"LOAD_JSON ERROR {path}: {e}")
         return {}
 
 
 def save_json(path: str, data):
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"SAVE_JSON ERROR {path}: {e}")
 
 
 saved_messages = load_json(MESSAGES_FILE)
@@ -54,6 +56,66 @@ async def health():
     return {"ok": True}
 
 
+@app.get("/healthz")
+async def healthz():
+    return {"status": "OK"}
+
+
+@app.get("/set_webhook")
+async def set_webhook():
+    webhook_url = f"{RENDER_EXTERNAL_URL}/webhook"
+    payload = {
+        "url": webhook_url,
+        "allowed_updates": [
+            "message",
+            "business_connection",
+            "business_message",
+            "edited_business_message",
+            "deleted_business_messages"
+        ]
+    }
+
+    if WEBHOOK_SECRET:
+        payload["secret_token"] = WEBHOOK_SECRET
+
+    response = requests.post(
+        f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook",
+        json=payload,
+        timeout=30
+    )
+
+    try:
+        result = response.json()
+    except Exception:
+        result = {
+            "ok": False,
+            "status_code": response.status_code,
+            "text": response.text
+        }
+
+    print("SET_WEBHOOK RESULT:", result)
+    return result
+
+
+@app.get("/get_webhook_info")
+async def get_webhook_info():
+    response = requests.get(
+        f"https://api.telegram.org/bot{BOT_TOKEN}/getWebhookInfo",
+        timeout=30
+    )
+    try:
+        result = response.json()
+    except Exception:
+        result = {
+            "ok": False,
+            "status_code": response.status_code,
+            "text": response.text
+        }
+
+    print("GET_WEBHOOK_INFO RESULT:", result)
+    return result
+
+
 def escape_text(value) -> str:
     return html.escape(str(value or "—"))
 
@@ -66,30 +128,43 @@ def quote_box(text: str) -> str:
 
 def tg_api(method: str, data=None, files=None):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/{method}"
-    response = requests.post(url, data=data, files=files, timeout=120)
     try:
-        result = response.json()
-    except Exception:
-        result = {"ok": False, "status_code": response.status_code, "text": response.text}
-    print(f"TG_API {method}:", result)
-    return result
+        response = requests.post(url, data=data, files=files, timeout=120)
+        try:
+            result = response.json()
+        except Exception:
+            result = {
+                "ok": False,
+                "status_code": response.status_code,
+                "text": response.text
+            }
+        print(f"TG_API {method}:", result)
+        return result
+    except Exception as e:
+        result = {"ok": False, "error": str(e)}
+        print(f"TG_API {method} EXCEPTION:", result)
+        return result
 
 
 def send_message(chat_id: int, text: str):
-    return tg_api("sendMessage", data={
+    result = tg_api("sendMessage", data={
         "chat_id": chat_id,
         "text": text,
         "parse_mode": "HTML"
     })
+    print("SEND_MESSAGE RESULT:", result)
+    return result
 
 
 def send_message_with_buttons(chat_id: int, text: str, buttons):
-    return tg_api("sendMessage", data={
+    result = tg_api("sendMessage", data={
         "chat_id": chat_id,
         "text": text,
         "parse_mode": "HTML",
         "reply_markup": json.dumps({"inline_keyboard": buttons}, ensure_ascii=False)
     })
+    print("SEND_MESSAGE_WITH_BUTTONS RESULT:", result)
+    return result
 
 
 def send_photo(chat_id: int, photo_path: str, caption: str = ""):
@@ -99,14 +174,19 @@ def send_photo(chat_id: int, photo_path: str, caption: str = ""):
         "caption": caption,
         "parse_mode": "HTML"
     }
-    with open(photo_path, "rb") as f:
-        response = requests.post(url, data=data, files={"photo": f}, timeout=120)
     try:
-        result = response.json()
-    except Exception:
-        result = {"ok": False, "status_code": response.status_code, "text": response.text}
-    print("TG_API sendPhoto:", result)
-    return result
+        with open(photo_path, "rb") as f:
+            response = requests.post(url, data=data, files={"photo": f}, timeout=120)
+        try:
+            result = response.json()
+        except Exception:
+            result = {"ok": False, "status_code": response.status_code, "text": response.text}
+        print("SEND_PHOTO RESULT:", result)
+        return result
+    except Exception as e:
+        result = {"ok": False, "error": str(e)}
+        print("SEND_PHOTO EXCEPTION:", result)
+        return result
 
 
 def send_photo_with_buttons(chat_id: int, photo_path: str, caption: str = "", buttons=None):
@@ -119,16 +199,21 @@ def send_photo_with_buttons(chat_id: int, photo_path: str, caption: str = "", bu
     if buttons:
         data["reply_markup"] = json.dumps({"inline_keyboard": buttons}, ensure_ascii=False)
 
-    with open(photo_path, "rb") as f:
-        response = requests.post(url, data=data, files={"photo": f}, timeout=120)
-
     try:
-        result = response.json()
-    except Exception:
-        result = {"ok": False, "status_code": response.status_code, "text": response.text}
+        with open(photo_path, "rb") as f:
+            response = requests.post(url, data=data, files={"photo": f}, timeout=120)
 
-    print("TG_API sendPhotoWithButtons:", result)
-    return result
+        try:
+            result = response.json()
+        except Exception:
+            result = {"ok": False, "status_code": response.status_code, "text": response.text}
+
+        print("SEND_PHOTO_WITH_BUTTONS RESULT:", result)
+        return result
+    except Exception as e:
+        result = {"ok": False, "error": str(e)}
+        print("SEND_PHOTO_WITH_BUTTONS EXCEPTION:", result)
+        return result
 
 
 def send_video(chat_id: int, video_path: str, caption: str = ""):
@@ -138,14 +223,19 @@ def send_video(chat_id: int, video_path: str, caption: str = ""):
         "caption": caption,
         "parse_mode": "HTML"
     }
-    with open(video_path, "rb") as f:
-        response = requests.post(url, data=data, files={"video": f}, timeout=120)
     try:
-        result = response.json()
-    except Exception:
-        result = {"ok": False, "status_code": response.status_code, "text": response.text}
-    print("TG_API sendVideo:", result)
-    return result
+        with open(video_path, "rb") as f:
+            response = requests.post(url, data=data, files={"video": f}, timeout=120)
+        try:
+            result = response.json()
+        except Exception:
+            result = {"ok": False, "status_code": response.status_code, "text": response.text}
+        print("SEND_VIDEO RESULT:", result)
+        return result
+    except Exception as e:
+        result = {"ok": False, "error": str(e)}
+        print("SEND_VIDEO EXCEPTION:", result)
+        return result
 
 
 def send_document(chat_id: int, file_path: str, caption: str = ""):
@@ -155,14 +245,19 @@ def send_document(chat_id: int, file_path: str, caption: str = ""):
         "caption": caption,
         "parse_mode": "HTML"
     }
-    with open(file_path, "rb") as f:
-        response = requests.post(url, data=data, files={"document": f}, timeout=120)
     try:
-        result = response.json()
-    except Exception:
-        result = {"ok": False, "status_code": response.status_code, "text": response.text}
-    print("TG_API sendDocument:", result)
-    return result
+        with open(file_path, "rb") as f:
+            response = requests.post(url, data=data, files={"document": f}, timeout=120)
+        try:
+            result = response.json()
+        except Exception:
+            result = {"ok": False, "status_code": response.status_code, "text": response.text}
+        print("SEND_DOCUMENT RESULT:", result)
+        return result
+    except Exception as e:
+        result = {"ok": False, "error": str(e)}
+        print("SEND_DOCUMENT EXCEPTION:", result)
+        return result
 
 
 def get_file(file_id: str):
@@ -191,7 +286,10 @@ def download_file(file_id: str, prefix: str, unique_id: str):
         if response.status_code == 200:
             with open(local_path, "wb") as f:
                 f.write(response.content)
+            print("DOWNLOADED FILE:", str(local_path))
             return str(local_path)
+
+        print("DOWNLOAD FAILED STATUS:", response.status_code)
     except Exception as e:
         print("DOWNLOAD ERROR:", str(e))
 
@@ -481,6 +579,7 @@ async def telegram_webhook(
     x_telegram_bot_api_secret_token: Optional[str] = Header(default=None)
 ):
     if WEBHOOK_SECRET and x_telegram_bot_api_secret_token != WEBHOOK_SECRET:
+        print("INVALID SECRET TOKEN:", x_telegram_bot_api_secret_token)
         raise HTTPException(status_code=403, detail="Invalid secret token")
 
     try:
@@ -596,7 +695,11 @@ async def telegram_webhook(
                 old = saved_messages.get(key)
 
                 if not old:
-                    print("DELETE MISS:", {"business_connection_id": bc_id, "chat_id": chat_id, "message_id": mid})
+                    print("DELETE MISS:", {
+                        "business_connection_id": bc_id,
+                        "chat_id": chat_id,
+                        "message_id": mid
+                    })
                     continue
 
                 user_label = old.get("user_label", "Пользователь")
@@ -612,16 +715,22 @@ async def telegram_webhook(
                     elif message_type in ["document", "voice"] and stored_path and os.path.exists(stored_path):
                         notify_user_document(bc_id, stored_path, caption=caption)
                     else:
-                        notify_user_text(bc_id, build_deleted_text_message(user_label, build_message_preview(old)))
+                        notify_user_text(
+                            bc_id,
+                            build_deleted_text_message(user_label, build_message_preview(old))
+                        )
 
         elif "message" in update:
             print("MESSAGE UPDATE HIT")
             msg = update["message"]
             chat_id = (msg.get("chat") or {}).get("id")
-            text = (msg.get("text") or "").strip().lower()
+            text = (msg.get("text") or "").strip()
+            text_lower = text.lower()
+
+            print("CHAT_ID:", chat_id)
             print("TEXT:", text)
 
-            if text == "/start" and chat_id:
+            if text_lower == "/start" and chat_id:
                 print("START COMMAND HIT")
                 guide_path = "start_guide.png"
 
@@ -632,8 +741,8 @@ async def telegram_webhook(
                     "• Уведомляет об удалённых и изменённых сообщениях.\n"
                     "• Сохраняет reply-медиа и файлы с таймером.\n\n"
                     "<b>Как подключить:</b>\n"
-                    "1. Нажмите <b>«Подключить»</b>.\n"
-                    "2. Откройте <b>Telegram Business → Чат-боты</b>.\n"
+                    "1. Нажмите «Подключить».\n"
+                    "2. Откройте Telegram Business → Чат-боты.\n"
                     "3. Введите <code>@snapsaveguard_bot</code>."
                 )
 
@@ -642,20 +751,37 @@ async def telegram_webhook(
                     [{"text": "🎥 Демонстрация работы", "url": "https://t.me/snapsaveguard_bot"}]
                 ]
 
+                send_result = None
+
                 if os.path.exists(guide_path):
                     print("START IMAGE FOUND")
-                    send_photo_with_buttons(chat_id, guide_path, caption=start_caption, buttons=buttons)
+                    send_result = send_photo_with_buttons(
+                        chat_id,
+                        guide_path,
+                        caption=start_caption,
+                        buttons=buttons
+                    )
+                    if not send_result or not send_result.get("ok"):
+                        print("PHOTO SEND FAILED, FALLBACK TO TEXT")
+                        send_result = send_message_with_buttons(chat_id, start_caption, buttons)
                 else:
                     print("START IMAGE NOT FOUND")
-                    send_message_with_buttons(chat_id, start_caption, buttons)
+                    send_result = send_message_with_buttons(chat_id, start_caption, buttons)
 
-            elif text == "/help" and chat_id:
-                send_message(
+                print("FINAL START SEND RESULT:", send_result)
+
+            elif text_lower == "/help" and chat_id:
+                print("HELP COMMAND HIT")
+                result = send_message(
                     chat_id,
                     "Команды:\n"
                     "• /start — запуск\n"
                     "• /help — помощь"
                 )
+                print("HELP SEND RESULT:", result)
+
+            else:
+                print("UNKNOWN USER MESSAGE:", text)
 
         else:
             print("UNKNOWN UPDATE TYPE")
