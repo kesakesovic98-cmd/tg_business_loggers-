@@ -56,7 +56,7 @@ async def health():
     return {"ok": True}
 
 
-@app.get("/healthz")
+@app.api_route("/healthz", methods=["GET", "HEAD"])
 async def healthz():
     return {"status": "OK"}
 
@@ -147,95 +147,55 @@ def tg_api(method: str, data=None, files=None):
 
 
 def send_message(chat_id: int, text: str):
-    result = tg_api("sendMessage", data={
+    return tg_api("sendMessage", data={
         "chat_id": chat_id,
         "text": text,
         "parse_mode": "HTML"
     })
-    print("SEND_MESSAGE RESULT:", result)
-    return result
 
 
 def send_message_with_buttons(chat_id: int, text: str, buttons):
-    result = tg_api("sendMessage", data={
+    return tg_api("sendMessage", data={
         "chat_id": chat_id,
         "text": text,
         "parse_mode": "HTML",
         "reply_markup": json.dumps({"inline_keyboard": buttons}, ensure_ascii=False)
     })
-    print("SEND_MESSAGE_WITH_BUTTONS RESULT:", result)
-    return result
 
 
 def send_photo(chat_id: int, photo_path: str, caption: str = ""):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
-    data = {
-        "chat_id": chat_id,
-        "caption": caption,
-        "parse_mode": "HTML"
-    }
+    data = {"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"}
     try:
         with open(photo_path, "rb") as f:
             response = requests.post(url, data=data, files={"photo": f}, timeout=120)
-        try:
-            result = response.json()
-        except Exception:
-            result = {"ok": False, "status_code": response.status_code, "text": response.text}
-        print("SEND_PHOTO RESULT:", result)
-        return result
+        return response.json()
     except Exception as e:
-        result = {"ok": False, "error": str(e)}
-        print("SEND_PHOTO EXCEPTION:", result)
-        return result
+        return {"ok": False, "error": str(e)}
 
 
 def send_photo_with_buttons(chat_id: int, photo_path: str, caption: str = "", buttons=None):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
-    data = {
-        "chat_id": chat_id,
-        "caption": caption,
-        "parse_mode": "HTML"
-    }
+    data = {"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"}
     if buttons:
         data["reply_markup"] = json.dumps({"inline_keyboard": buttons}, ensure_ascii=False)
-
     try:
         with open(photo_path, "rb") as f:
             response = requests.post(url, data=data, files={"photo": f}, timeout=120)
-
-        try:
-            result = response.json()
-        except Exception:
-            result = {"ok": False, "status_code": response.status_code, "text": response.text}
-
-        print("SEND_PHOTO_WITH_BUTTONS RESULT:", result)
-        return result
+        return response.json()
     except Exception as e:
-        result = {"ok": False, "error": str(e)}
-        print("SEND_PHOTO_WITH_BUTTONS EXCEPTION:", result)
-        return result
+        return {"ok": False, "error": str(e)}
 
 
 def send_video(chat_id: int, video_path: str, caption: str = ""):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendVideo"
-    data = {
-        "chat_id": chat_id,
-        "caption": caption,
-        "parse_mode": "HTML"
-    }
+    data = {"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"}
     try:
         with open(video_path, "rb") as f:
             response = requests.post(url, data=data, files={"video": f}, timeout=120)
-        try:
-            result = response.json()
-        except Exception:
-            result = {"ok": False, "status_code": response.status_code, "text": response.text}
-        print("SEND_VIDEO RESULT:", result)
-        return result
+        return response.json()
     except Exception as e:
-        result = {"ok": False, "error": str(e)}
-        print("SEND_VIDEO EXCEPTION:", result)
-        return result
+        return {"ok": False, "error": str(e)}
 
 
 def send_video_note(chat_id: int, video_note_path: str):
@@ -244,38 +204,20 @@ def send_video_note(chat_id: int, video_note_path: str):
     try:
         with open(video_note_path, "rb") as f:
             response = requests.post(url, data=data, files={"video_note": f}, timeout=120)
-        try:
-            result = response.json()
-        except Exception:
-            result = {"ok": False, "status_code": response.status_code, "text": response.text}
-        print("SEND_VIDEO_NOTE RESULT:", result)
-        return result
+        return response.json()
     except Exception as e:
-        result = {"ok": False, "error": str(e)}
-        print("SEND_VIDEO_NOTE EXCEPTION:", result)
-        return result
+        return {"ok": False, "error": str(e)}
 
 
 def send_document(chat_id: int, file_path: str, caption: str = ""):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument"
-    data = {
-        "chat_id": chat_id,
-        "caption": caption,
-        "parse_mode": "HTML"
-    }
+    data = {"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"}
     try:
         with open(file_path, "rb") as f:
             response = requests.post(url, data=data, files={"document": f}, timeout=120)
-        try:
-            result = response.json()
-        except Exception:
-            result = {"ok": False, "status_code": response.status_code, "text": response.text}
-        print("SEND_DOCUMENT RESULT:", result)
-        return result
+        return response.json()
     except Exception as e:
-        result = {"ok": False, "error": str(e)}
-        print("SEND_DOCUMENT EXCEPTION:", result)
-        return result
+        return {"ok": False, "error": str(e)}
 
 
 def get_file(file_id: str):
@@ -298,16 +240,16 @@ def download_file(file_id: str, prefix: str, unique_id: str):
         ext = Path(remote_path).suffix or ".bin"
         local_path = MEDIA_DIR / f"{prefix}_{unique_id}{ext}"
 
+        if local_path.exists():
+            return str(local_path)
+
         file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{remote_path}"
         response = requests.get(file_url, timeout=120)
 
         if response.status_code == 200:
             with open(local_path, "wb") as f:
                 f.write(response.content)
-            print("DOWNLOADED FILE:", str(local_path))
             return str(local_path)
-
-        print("DOWNLOAD FAILED STATUS:", response.status_code)
     except Exception as e:
         print("DOWNLOAD ERROR:", str(e))
 
@@ -426,13 +368,12 @@ def get_reply_preview(reply_to):
 def is_disappearing_message(msg) -> bool:
     if not msg:
         return False
-
     return bool(
         msg.get("ttl_seconds")
         or msg.get("self_destructs_in")
         or msg.get("is_temporal")
         or msg.get("is_ephemeral")
-        or msg.get("has_protected_content")
+        or msg.get("view_once")
     )
 
 
@@ -446,7 +387,8 @@ def extract_reply_media(reply_to):
             "message_type": "video_note",
             "file_id": video_note.get("file_id"),
             "file_unique_id": video_note.get("file_unique_id"),
-            "caption": ""
+            "caption": "",
+            "is_disappearing": True
         }
 
     if reply_to.get("photo") and is_disappearing_message(reply_to):
@@ -455,7 +397,8 @@ def extract_reply_media(reply_to):
             "message_type": "photo",
             "file_id": largest.get("file_id"),
             "file_unique_id": largest.get("file_unique_id"),
-            "caption": reply_to.get("caption", "")
+            "caption": reply_to.get("caption", ""),
+            "is_disappearing": True
         }
 
     if reply_to.get("video") and is_disappearing_message(reply_to):
@@ -464,16 +407,8 @@ def extract_reply_media(reply_to):
             "message_type": "video",
             "file_id": video.get("file_id"),
             "file_unique_id": video.get("file_unique_id"),
-            "caption": reply_to.get("caption", "")
-        }
-
-    if reply_to.get("document"):
-        doc = reply_to["document"]
-        return {
-            "message_type": "document",
-            "file_id": doc.get("file_id"),
-            "file_unique_id": doc.get("file_unique_id"),
-            "caption": reply_to.get("caption", "")
+            "caption": reply_to.get("caption", ""),
+            "is_disappearing": True
         }
 
     return None
@@ -544,20 +479,7 @@ def extract_media_info(msg):
 
 def should_store_main_message(media_info: dict) -> bool:
     message_type = media_info.get("message_type")
-
-    if message_type == "text":
-        return True
-
-    if message_type == "video_note":
-        return True
-
-    if message_type in ["photo", "video"]:
-        return bool(media_info.get("is_disappearing"))
-
-    if message_type in ["document", "voice"]:
-        return True
-
-    return False
+    return message_type in ["text", "photo", "video", "video_note", "document", "voice"]
 
 
 def build_message_preview(item) -> str:
@@ -587,8 +509,9 @@ def build_deleted_text_message(user_label: str, preview: str) -> str:
     )
 
 
-def build_deleted_caption(user_label: str) -> str:
-    return f"🗑 <b>{escape_text(user_label)}</b> <b>УДАЛИЛ(А) СООБЩЕНИЕ</b>"
+def build_deleted_caption(user_label: str, item: dict) -> str:
+    badge = "⏱ " if item and item.get("is_disappearing") else ""
+    return f"{badge}🗑 <b>{escape_text(user_label)}</b> <b>УДАЛИЛ(А) СООБЩЕНИЕ</b>"
 
 
 def build_edited_text_message(user_label: str, old_text: str, new_text: str) -> str:
@@ -611,9 +534,15 @@ def build_edited_media_message(user_label: str, old_preview: str, new_preview: s
     )
 
 
-def build_reply_saved_caption(user_label: str, caption: str) -> str:
+def build_reply_saved_caption(user_label: str, caption: str, media_type: str) -> str:
+    media_name = {
+        "photo": "ФОТО С ТАЙМЕРОМ",
+        "video": "ВИДЕО С ТАЙМЕРОМ",
+        "video_note": "КРУЖОК"
+    }.get(media_type, "REPLY-МЕДИА")
+
     return (
-        f"💾 <b>{escape_text(user_label)}</b> <b>ОТВЕТИЛ(А) НА REPLY-МЕДИА</b>\n\n"
+        f"💾 <b>{escape_text(user_label)}</b> <b>ОТВЕТИЛ(А) НА {media_name}</b>\n\n"
         f"<b>СОХРАНЕНО АВТОМАТИЧЕСКИ</b>\n"
         f"{quote_box(caption or 'Без подписи')}"
     )
@@ -636,7 +565,7 @@ def auto_forward_reply_media(business_connection_id: str, user_label: str, reply
     if not stored_path or not os.path.exists(stored_path):
         return False
 
-    notify_caption = build_reply_saved_caption(user_label, caption)
+    notify_caption = build_reply_saved_caption(user_label, caption, message_type)
 
     if message_type == "photo":
         notify_user_photo(business_connection_id, stored_path, caption=notify_caption)
@@ -650,12 +579,8 @@ def auto_forward_reply_media(business_connection_id: str, user_label: str, reply
         notify_user_video_note(business_connection_id, stored_path)
         notify_user_text(
             business_connection_id,
-            f"💾 <b>{escape_text(user_label)}</b> <b>ОТВЕТИЛ(А) НА REPLY-КРУЖОК</b>\n\n<b>СОХРАНЕНО АВТОМАТИЧЕСКИ</b>"
+            f"💾 <b>{escape_text(user_label)}</b> <b>ОТВЕТИЛ(А) НА КРУЖОК</b>\n\n<b>СОХРАНЕНО АВТОМАТИЧЕСКИ</b>"
         )
-        return True
-
-    if message_type == "document":
-        notify_user_document(business_connection_id, stored_path, caption=notify_caption)
         return True
 
     return False
@@ -684,8 +609,7 @@ def process_update(update: dict):
             if bc_id and user_chat_id and is_enabled:
                 notify_user_text(
                     bc_id,
-                    "✅ <b>Бот подключён.</b>\n\n"
-                    "Теперь уведомления об удалённых, изменённых сообщениях и сохранённых reply-медиа будут приходить сюда."
+                    "✅ <b>Бот подключён.</b>\n\nТеперь уведомления об удалённых, изменённых сообщениях и сохранённых reply-медиа будут приходить сюда."
                 )
 
         elif "business_message" in update:
@@ -715,12 +639,6 @@ def process_update(update: dict):
                     **media_info
                 }
                 save_json(MESSAGES_FILE, saved_messages)
-            else:
-                print("SKIP STORE MAIN MESSAGE:", {
-                    "message_id": message_id,
-                    "message_type": media_info.get("message_type"),
-                    "is_disappearing": media_info.get("is_disappearing")
-                })
 
             reply_to = msg.get("reply_to_message")
             if reply_to and bc_id:
@@ -770,12 +688,6 @@ def process_update(update: dict):
                         notify_user_text(bc_id, build_edited_text_message(user_label, old_text, new_text))
                     else:
                         notify_user_text(bc_id, build_edited_media_message(user_label, old_preview, new_preview))
-            else:
-                print("SKIP STORE EDITED MESSAGE:", {
-                    "message_id": message_id,
-                    "message_type": media_info.get("message_type"),
-                    "is_disappearing": media_info.get("is_disappearing")
-                })
 
         elif "deleted_business_messages" in update:
             print("DELETED_BUSINESS_MESSAGES HIT")
@@ -798,7 +710,7 @@ def process_update(update: dict):
                 user_label = old.get("user_label", "Пользователь")
                 message_type = old.get("message_type")
                 stored_path = old.get("stored_path")
-                caption = build_deleted_caption(user_label)
+                caption = build_deleted_caption(user_label, old)
 
                 if bc_id:
                     if message_type == "photo" and stored_path and os.path.exists(stored_path):
@@ -835,7 +747,8 @@ def process_update(update: dict):
                     "Бот помогает отслеживать изменения в переписке и сохранять важные медиа.\n\n"
                     "<b>Что умеет:</b>\n"
                     "• Уведомляет об удалённых и изменённых сообщениях.\n"
-                    "• Сохраняет reply-медиа и файлы с таймером.\n\n"
+                    "• Восстанавливает удалённые фото, видео и кружки.\n"
+                    "• Сохраняет reply на исчезающие фото и видео с таймером.\n\n"
                     "<b>Как подключить:</b>\n"
                     "1. Нажмите «Подключить».\n"
                     "2. Откройте Telegram Business → Чат-боты.\n"
@@ -847,10 +760,7 @@ def process_update(update: dict):
                     [{"text": "🎥 Демонстрация работы", "url": "https://t.me/snapsaveguard_bot"}]
                 ]
 
-                send_result = None
-
                 if os.path.exists(guide_path):
-                    print("START IMAGE FOUND")
                     send_result = send_photo_with_buttons(
                         chat_id,
                         guide_path,
@@ -858,29 +768,17 @@ def process_update(update: dict):
                         buttons=buttons
                     )
                     if not send_result or not send_result.get("ok"):
-                        print("PHOTO SEND FAILED, FALLBACK TO TEXT")
-                        send_result = send_message_with_buttons(chat_id, start_caption, buttons)
+                        send_message_with_buttons(chat_id, start_caption, buttons)
                 else:
-                    print("START IMAGE NOT FOUND")
-                    send_result = send_message_with_buttons(chat_id, start_caption, buttons)
-
-                print("FINAL START SEND RESULT:", send_result)
+                    send_message_with_buttons(chat_id, start_caption, buttons)
 
             elif text_lower == "/help" and chat_id:
-                print("HELP COMMAND HIT")
-                result = send_message(
+                send_message(
                     chat_id,
                     "Команды:\n"
                     "• /start — запуск\n"
                     "• /help — помощь"
                 )
-                print("HELP SEND RESULT:", result)
-
-            else:
-                print("UNKNOWN USER MESSAGE:", text)
-
-        else:
-            print("UNKNOWN UPDATE TYPE")
 
     except Exception as e:
         print("PROCESS_UPDATE ERROR:", str(e))
