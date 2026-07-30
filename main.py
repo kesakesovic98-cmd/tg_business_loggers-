@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 import requests
-from fastapi import FastAPI, Request, Header, HTTPException
+from fastapi import FastAPI, Request, Header, HTTPException, BackgroundTasks
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "").strip()
@@ -240,9 +240,7 @@ def send_video(chat_id: int, video_path: str, caption: str = ""):
 
 def send_video_note(chat_id: int, video_note_path: str):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendVideoNote"
-    data = {
-        "chat_id": chat_id
-    }
+    data = {"chat_id": chat_id}
     try:
         with open(video_note_path, "rb") as f:
             response = requests.post(url, data=data, files={"video_note": f}, timeout=120)
@@ -428,7 +426,14 @@ def get_reply_preview(reply_to):
 def is_disappearing_message(msg) -> bool:
     if not msg:
         return False
-    return bool(msg.get("ttl_seconds"))
+
+    return bool(
+        msg.get("ttl_seconds")
+        or msg.get("self_destructs_in")
+        or msg.get("is_temporal")
+        or msg.get("is_ephemeral")
+        or msg.get("has_protected_content")
+    )
 
 
 def extract_reply_media(reply_to):
@@ -453,7 +458,7 @@ def extract_reply_media(reply_to):
             "caption": reply_to.get("caption", "")
         }
 
-    if reply_to.get("video"):
+    if reply_to.get("video") and is_disappearing_message(reply_to):
         video = reply_to["video"]
         return {
             "message_type": "video",
@@ -487,6 +492,7 @@ def extract_media_info(msg):
         "stored_path": None,
         "reply_to_preview": None,
         "ttl_seconds": msg.get("ttl_seconds"),
+        "is_disappearing": is_disappearing_message(msg),
     }
 
     if msg.get("reply_to_message"):
@@ -545,10 +551,10 @@ def should_store_main_message(media_info: dict) -> bool:
     if message_type == "video_note":
         return True
 
-    if message_type == "photo":
-        return bool(media_info.get("ttl_seconds"))
+    if message_type in ["photo", "video"]:
+        return bool(media_info.get("is_disappearing"))
 
-    if message_type in ["video", "document", "voice"]:
+    if message_type in ["document", "voice"]:
         return True
 
     return False
@@ -655,17 +661,8 @@ def auto_forward_reply_media(business_connection_id: str, user_label: str, reply
     return False
 
 
-@app.post("/webhook")
-async def telegram_webhook(
-    request: Request,
-    x_telegram_bot_api_secret_token: Optional[str] = Header(default=None)
-):
-    if WEBHOOK_SECRET and x_telegram_bot_api_secret_token != WEBHOOK_SECRET:
-        print("INVALID SECRET TOKEN:", x_telegram_bot_api_secret_token)
-        raise HTTPException(status_code=403, detail="Invalid secret token")
-
+def process_update(update: dict):
     try:
-        update = await request.json()
         print("UPDATE RAW:", update)
 
         if "business_connection" in update:
@@ -722,7 +719,7 @@ async def telegram_webhook(
                 print("SKIP STORE MAIN MESSAGE:", {
                     "message_id": message_id,
                     "message_type": media_info.get("message_type"),
-                    "ttl_seconds": media_info.get("ttl_seconds")
+                    "is_disappearing": media_info.get("is_disappearing")
                 })
 
             reply_to = msg.get("reply_to_message")
@@ -777,7 +774,7 @@ async def telegram_webhook(
                 print("SKIP STORE EDITED MESSAGE:", {
                     "message_id": message_id,
                     "message_type": media_info.get("message_type"),
-                    "ttl_seconds": media_info.get("ttl_seconds")
+                    "is_disappearing": media_info.get("is_disappearing")
                 })
 
         elif "deleted_business_messages" in update:
@@ -885,10 +882,8 @@ async def telegram_webhook(
         else:
             print("UNKNOWN UPDATE TYPE")
 
-        return {"ok": True}
-
     except Exception as e:
-        print("WEBHOOK ERROR:", str(e))
+        print("PROCESS_UPDATE ERROR:", str(e))
         if ADMIN_CHAT_ID:
             try:
                 send_message(
@@ -897,4 +892,18 @@ async def telegram_webhook(
                 )
             except Exception:
                 pass
-        return {"ok": True, "error": str(e)}
+
+
+@app.post("/webhook")
+async def telegram_webhook(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    x_telegram_bot_api_secret_token: Optional[str] = Header(default=None)
+):
+    if WEBHOOK_SECRET and x_telegram_bot_api_secret_token != WEBHOOK_SECRET:
+        print("INVALID SECRET TOKEN:", x_telegram_bot_api_secret_token)
+        raise HTTPException(status_code=403, detail="Invalid secret token")
+
+    update = await request.json()
+    background_tasks.add_task(process_update, update)
+    return {"ok": True}
