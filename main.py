@@ -368,13 +368,40 @@ def get_reply_preview(reply_to):
 def is_disappearing_message(msg) -> bool:
     if not msg:
         return False
-    return bool(
-        msg.get("ttl_seconds")
-        or msg.get("self_destructs_in")
-        or msg.get("is_temporal")
-        or msg.get("is_ephemeral")
-        or msg.get("view_once")
-    )
+
+    if msg.get("ttl_seconds"):
+        return True
+
+    if msg.get("self_destructs_in"):
+        return True
+
+    if msg.get("is_temporal"):
+        return True
+
+    if msg.get("is_ephemeral"):
+        return True
+
+    if msg.get("view_once"):
+        return True
+
+    if msg.get("has_protected_content"):
+        return True
+
+    if msg.get("photo") or msg.get("video") or msg.get("video_note"):
+        raw = json.dumps(msg, ensure_ascii=False).lower()
+        suspicious_tokens = [
+            "ttl",
+            "self_destruct",
+            "ephemeral",
+            "temporal",
+            "view_once",
+            "one_time",
+            "one_view"
+        ]
+        if any(token in raw for token in suspicious_tokens):
+            return True
+
+    return False
 
 
 def extract_reply_media(reply_to):
@@ -619,6 +646,9 @@ def process_update(update: dict):
             chat_id = (msg.get("chat") or {}).get("id")
             message_id = msg.get("message_id")
             user_label = get_user_label(msg.get("from"))
+
+            if msg.get("photo") or msg.get("video") or msg.get("video_note"):
+                print("MEDIA DEBUG:", json.dumps(msg, ensure_ascii=False))
 
             media_info = extract_media_info(msg)
 
