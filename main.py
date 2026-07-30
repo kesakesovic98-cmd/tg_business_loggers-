@@ -238,6 +238,26 @@ def send_video(chat_id: int, video_path: str, caption: str = ""):
         return result
 
 
+def send_video_note(chat_id: int, video_note_path: str):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendVideoNote"
+    data = {
+        "chat_id": chat_id
+    }
+    try:
+        with open(video_note_path, "rb") as f:
+            response = requests.post(url, data=data, files={"video_note": f}, timeout=120)
+        try:
+            result = response.json()
+        except Exception:
+            result = {"ok": False, "status_code": response.status_code, "text": response.text}
+        print("SEND_VIDEO_NOTE RESULT:", result)
+        return result
+    except Exception as e:
+        result = {"ok": False, "error": str(e)}
+        print("SEND_VIDEO_NOTE EXCEPTION:", result)
+        return result
+
+
 def send_document(chat_id: int, file_path: str, caption: str = ""):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument"
     data = {
@@ -369,6 +389,14 @@ def notify_user_video(business_connection_id: str, video_path: str, caption: str
     return send_video(user_chat_id, video_path, caption=caption)
 
 
+def notify_user_video_note(business_connection_id: str, video_note_path: str):
+    user_chat_id = get_user_chat_id(business_connection_id)
+    if not user_chat_id:
+        print("NO USER CHAT:", {"business_connection_id": business_connection_id})
+        return None
+    return send_video_note(user_chat_id, video_note_path)
+
+
 def notify_user_document(business_connection_id: str, file_path: str, caption: str = ""):
     user_chat_id = get_user_chat_id(business_connection_id)
     if not user_chat_id:
@@ -388,6 +416,8 @@ def get_reply_preview(reply_to):
         return "[photo]"
     if reply_to.get("video"):
         return "[video]"
+    if reply_to.get("video_note"):
+        return "[video_note]"
     if reply_to.get("document"):
         return "[document]"
     if reply_to.get("voice"):
@@ -395,11 +425,26 @@ def get_reply_preview(reply_to):
     return None
 
 
+def is_disappearing_message(msg) -> bool:
+    if not msg:
+        return False
+    return bool(msg.get("ttl_seconds"))
+
+
 def extract_reply_media(reply_to):
     if not reply_to:
         return None
 
-    if reply_to.get("photo"):
+    if reply_to.get("video_note"):
+        video_note = reply_to["video_note"]
+        return {
+            "message_type": "video_note",
+            "file_id": video_note.get("file_id"),
+            "file_unique_id": video_note.get("file_unique_id"),
+            "caption": ""
+        }
+
+    if reply_to.get("photo") and is_disappearing_message(reply_to):
         largest = reply_to["photo"][-1]
         return {
             "message_type": "photo",
@@ -441,6 +486,7 @@ def extract_media_info(msg):
         "duration": None,
         "stored_path": None,
         "reply_to_preview": None,
+        "ttl_seconds": msg.get("ttl_seconds"),
     }
 
     if msg.get("reply_to_message"):
@@ -454,6 +500,14 @@ def extract_media_info(msg):
         result["message_type"] = "photo"
         result["file_id"] = largest.get("file_id")
         result["file_unique_id"] = largest.get("file_unique_id")
+
+    elif msg.get("video_note"):
+        video_note = msg["video_note"]
+        result["message_type"] = "video_note"
+        result["file_id"] = video_note.get("file_id")
+        result["file_unique_id"] = video_note.get("file_unique_id")
+        result["duration"] = video_note.get("duration")
+        result["mime_type"] = video_note.get("mime_type")
 
     elif msg.get("video"):
         video = msg["video"]
@@ -482,6 +536,24 @@ def extract_media_info(msg):
     return result
 
 
+def should_store_main_message(media_info: dict) -> bool:
+    message_type = media_info.get("message_type")
+
+    if message_type == "text":
+        return True
+
+    if message_type == "video_note":
+        return True
+
+    if message_type == "photo":
+        return bool(media_info.get("ttl_seconds"))
+
+    if message_type in ["video", "document", "voice"]:
+        return True
+
+    return False
+
+
 def build_message_preview(item) -> str:
     if not item:
         return "—"
@@ -493,6 +565,8 @@ def build_message_preview(item) -> str:
         return f"Фото\nПодпись: {item.get('caption') or '—'}"
     if mtype == "video":
         return f"Видео\nПодпись: {item.get('caption') or '—'}"
+    if mtype == "video_note":
+        return f"Кружок\nДлительность: {item.get('duration') or '—'} сек"
     if mtype == "document":
         return f"Документ\nИмя: {item.get('file_name') or '—'}\nПодпись: {item.get('caption') or '—'}"
     if mtype == "voice":
@@ -566,6 +640,14 @@ def auto_forward_reply_media(business_connection_id: str, user_label: str, reply
         notify_user_video(business_connection_id, stored_path, caption=notify_caption)
         return True
 
+    if message_type == "video_note":
+        notify_user_video_note(business_connection_id, stored_path)
+        notify_user_text(
+            business_connection_id,
+            f"💾 <b>{escape_text(user_label)}</b> <b>ОТВЕТИЛ(А) НА REPLY-КРУЖОК</b>\n\n<b>СОХРАНЕНО АВТОМАТИЧЕСКИ</b>"
+        )
+        return True
+
     if message_type == "document":
         notify_user_document(business_connection_id, stored_path, caption=notify_caption)
         return True
@@ -619,22 +701,29 @@ async def telegram_webhook(
 
             media_info = extract_media_info(msg)
 
-            if media_info["file_id"] and media_info["file_unique_id"]:
-                media_info["stored_path"] = download_file(
-                    media_info["file_id"],
-                    media_info["message_type"],
-                    media_info["file_unique_id"]
-                )
+            if should_store_main_message(media_info):
+                if media_info["file_id"] and media_info["file_unique_id"]:
+                    media_info["stored_path"] = download_file(
+                        media_info["file_id"],
+                        media_info["message_type"],
+                        media_info["file_unique_id"]
+                    )
 
-            key = make_message_key(bc_id, chat_id, message_id)
-            saved_messages[key] = {
-                "business_connection_id": bc_id,
-                "chat_id": chat_id,
-                "message_id": message_id,
-                "user_label": user_label,
-                **media_info
-            }
-            save_json(MESSAGES_FILE, saved_messages)
+                key = make_message_key(bc_id, chat_id, message_id)
+                saved_messages[key] = {
+                    "business_connection_id": bc_id,
+                    "chat_id": chat_id,
+                    "message_id": message_id,
+                    "user_label": user_label,
+                    **media_info
+                }
+                save_json(MESSAGES_FILE, saved_messages)
+            else:
+                print("SKIP STORE MAIN MESSAGE:", {
+                    "message_id": message_id,
+                    "message_type": media_info.get("message_type"),
+                    "ttl_seconds": media_info.get("ttl_seconds")
+                })
 
             reply_to = msg.get("reply_to_message")
             if reply_to and bc_id:
@@ -652,37 +741,44 @@ async def telegram_webhook(
             old = saved_messages.get(key)
             media_info = extract_media_info(msg)
 
-            if media_info["file_id"] and media_info["file_unique_id"]:
-                media_info["stored_path"] = download_file(
-                    media_info["file_id"],
-                    media_info["message_type"],
-                    media_info["file_unique_id"]
-                )
+            if should_store_main_message(media_info):
+                if media_info["file_id"] and media_info["file_unique_id"]:
+                    media_info["stored_path"] = download_file(
+                        media_info["file_id"],
+                        media_info["message_type"],
+                        media_info["file_unique_id"]
+                    )
 
-            old_text = ""
-            old_preview = "Не было сохранено"
+                old_text = ""
+                old_preview = "Не было сохранено"
 
-            if old:
-                old_text = old.get("text") or old.get("caption") or ""
-                old_preview = build_message_preview(old)
+                if old:
+                    old_text = old.get("text") or old.get("caption") or ""
+                    old_preview = build_message_preview(old)
 
-            new_text = media_info.get("text") or media_info.get("caption") or ""
-            new_preview = build_message_preview(media_info)
+                new_text = media_info.get("text") or media_info.get("caption") or ""
+                new_preview = build_message_preview(media_info)
 
-            saved_messages[key] = {
-                "business_connection_id": bc_id,
-                "chat_id": chat_id,
-                "message_id": message_id,
-                "user_label": user_label,
-                **media_info
-            }
-            save_json(MESSAGES_FILE, saved_messages)
+                saved_messages[key] = {
+                    "business_connection_id": bc_id,
+                    "chat_id": chat_id,
+                    "message_id": message_id,
+                    "user_label": user_label,
+                    **media_info
+                }
+                save_json(MESSAGES_FILE, saved_messages)
 
-            if bc_id:
-                if old and old.get("message_type") == "text" and media_info.get("message_type") == "text":
-                    notify_user_text(bc_id, build_edited_text_message(user_label, old_text, new_text))
-                else:
-                    notify_user_text(bc_id, build_edited_media_message(user_label, old_preview, new_preview))
+                if bc_id:
+                    if old and old.get("message_type") == "text" and media_info.get("message_type") == "text":
+                        notify_user_text(bc_id, build_edited_text_message(user_label, old_text, new_text))
+                    else:
+                        notify_user_text(bc_id, build_edited_media_message(user_label, old_preview, new_preview))
+            else:
+                print("SKIP STORE EDITED MESSAGE:", {
+                    "message_id": message_id,
+                    "message_type": media_info.get("message_type"),
+                    "ttl_seconds": media_info.get("ttl_seconds")
+                })
 
         elif "deleted_business_messages" in update:
             print("DELETED_BUSINESS_MESSAGES HIT")
@@ -712,6 +808,9 @@ async def telegram_webhook(
                         notify_user_photo(bc_id, stored_path, caption=caption)
                     elif message_type == "video" and stored_path and os.path.exists(stored_path):
                         notify_user_video(bc_id, stored_path, caption=caption)
+                    elif message_type == "video_note" and stored_path and os.path.exists(stored_path):
+                        notify_user_video_note(bc_id, stored_path)
+                        notify_user_text(bc_id, caption)
                     elif message_type in ["document", "voice"] and stored_path and os.path.exists(stored_path):
                         notify_user_document(bc_id, stored_path, caption=caption)
                     else:
