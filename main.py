@@ -428,6 +428,18 @@ def extract_reply_media(reply_to):
             "is_disappearing": True
         }
 
+    if reply_to.get("video_note"):
+        video_note = reply_to["video_note"]
+
+        if is_disappearing_message(reply_to) or reply_to.get("ttl_seconds") or reply_to.get("view_once"):
+            return {
+                "message_type": "video_note",
+                "file_id": video_note.get("file_id"),
+                "file_unique_id": video_note.get("file_unique_id"),
+                "caption": "",
+                "is_disappearing": True
+            }
+
     return None
 
 
@@ -554,7 +566,8 @@ def build_edited_media_message(user_label: str, old_preview: str, new_preview: s
 def build_reply_saved_caption(user_label: str, caption: str, media_type: str) -> str:
     media_name = {
         "photo": "ФОТО С ТАЙМЕРОМ",
-        "video": "ВИДЕО С ТАЙМЕРОМ"
+        "video": "ВИДЕО С ТАЙМЕРОМ",
+        "video_note": "ИСЧЕЗАЮЩИЙ КРУЖОК"
     }.get(media_type, "REPLY-МЕДИА")
 
     return (
@@ -589,6 +602,11 @@ def auto_forward_reply_media(business_connection_id: str, user_label: str, reply
 
     if message_type == "video":
         notify_user_video(business_connection_id, stored_path, caption=notify_caption)
+        return True
+
+    if message_type == "video_note":
+        notify_user_video_note(business_connection_id, stored_path)
+        notify_user_text(business_connection_id, notify_caption)
         return True
 
     return False
@@ -652,6 +670,9 @@ def process_update(update: dict):
                 save_json(MESSAGES_FILE, saved_messages)
 
             reply_to = msg.get("reply_to_message")
+            if reply_to:
+                print("REPLY DEBUG:", json.dumps(reply_to, ensure_ascii=False))
+
             if reply_to and bc_id:
                 auto_forward_reply_media(bc_id, user_label, reply_to)
 
@@ -759,7 +780,7 @@ def process_update(update: dict):
                     "<b>Что умеет:</b>\n"
                     "• Уведомляет об удалённых и изменённых сообщениях.\n"
                     "• Восстанавливает удалённые фото, видео и кружки.\n"
-                    "• Сохраняет reply на исчезающие фото и видео с таймером.\n\n"
+                    "• Сохраняет reply на исчезающие фото, видео и кружки.\n\n"
                     "<b>Как подключить:</b>\n"
                     "1. Нажмите «Подключить».\n"
                     "2. Откройте Telegram Business → Чат-боты.\n"
