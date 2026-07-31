@@ -408,16 +408,6 @@ def extract_reply_media(reply_to):
     if not reply_to:
         return None
 
-    if reply_to.get("video_note"):
-        video_note = reply_to["video_note"]
-        return {
-            "message_type": "video_note",
-            "file_id": video_note.get("file_id"),
-            "file_unique_id": video_note.get("file_unique_id"),
-            "caption": "",
-            "is_disappearing": True
-        }
-
     if reply_to.get("photo") and is_disappearing_message(reply_to):
         largest = reply_to["photo"][-1]
         return {
@@ -564,8 +554,7 @@ def build_edited_media_message(user_label: str, old_preview: str, new_preview: s
 def build_reply_saved_caption(user_label: str, caption: str, media_type: str) -> str:
     media_name = {
         "photo": "ФОТО С ТАЙМЕРОМ",
-        "video": "ВИДЕО С ТАЙМЕРОМ",
-        "video_note": "КРУЖОК"
+        "video": "ВИДЕО С ТАЙМЕРОМ"
     }.get(media_type, "REPLY-МЕДИА")
 
     return (
@@ -600,14 +589,6 @@ def auto_forward_reply_media(business_connection_id: str, user_label: str, reply
 
     if message_type == "video":
         notify_user_video(business_connection_id, stored_path, caption=notify_caption)
-        return True
-
-    if message_type == "video_note":
-        notify_user_video_note(business_connection_id, stored_path)
-        notify_user_text(
-            business_connection_id,
-            f"💾 <b>{escape_text(user_label)}</b> <b>ОТВЕТИЛ(А) НА КРУЖОК</b>\n\n<b>СОХРАНЕНО АВТОМАТИЧЕСКИ</b>"
-        )
         return True
 
     return False
