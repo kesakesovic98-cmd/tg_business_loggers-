@@ -784,12 +784,22 @@ def process_update(update: dict):
                     "<b>Как подключить:</b>\n"
                     "1. Нажмите «Подключить».\n"
                     "2. Откройте Telegram Business → Чат-боты.\n"
-                    "3. Введите <code>@snapsaveguard_bot</code>."
+                    "3. Или нажмите «Скопировать username» и вставьте его в поиск."
                 )
 
                 buttons = [
-                    [{"text": "🟢 Подключить", "url": "https://t.me/snapsaveguard_bot"}],
-                    [{"text": "🎥 Демонстрация работы", "url": "https://t.me/snapsaveguard_bot"}]
+                    [
+                        {"text": "🟢 Подключить", "url": "https://t.me/snapsaveguard_bot"}
+                    ],
+                    [
+                        {
+                            "text": "📋 Скопировать username",
+                            "copy_text": {"text": "@snapsaveguard_bot"}
+                        }
+                    ],
+                    [
+                        {"text": "🎥 Демонстрация работы", "url": "https://t.me/snapsaveguard_bot"}
+                    ]
                 ]
 
                 if os.path.exists(guide_path):
