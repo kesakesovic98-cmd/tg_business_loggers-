@@ -430,7 +430,6 @@ def extract_reply_media(reply_to):
 
     if reply_to.get("video_note"):
         video_note = reply_to["video_note"]
-
         if is_disappearing_message(reply_to) or reply_to.get("ttl_seconds") or reply_to.get("view_once"):
             return {
                 "message_type": "video_note",
@@ -464,13 +463,11 @@ def extract_media_info(msg):
 
     if msg.get("text"):
         result["message_type"] = "text"
-
     elif msg.get("photo"):
         largest = msg["photo"][-1]
         result["message_type"] = "photo"
         result["file_id"] = largest.get("file_id")
         result["file_unique_id"] = largest.get("file_unique_id")
-
     elif msg.get("video_note"):
         video_note = msg["video_note"]
         result["message_type"] = "video_note"
@@ -478,7 +475,6 @@ def extract_media_info(msg):
         result["file_unique_id"] = video_note.get("file_unique_id")
         result["duration"] = video_note.get("duration")
         result["mime_type"] = video_note.get("mime_type")
-
     elif msg.get("video"):
         video = msg["video"]
         result["message_type"] = "video"
@@ -486,7 +482,6 @@ def extract_media_info(msg):
         result["file_unique_id"] = video.get("file_unique_id")
         result["mime_type"] = video.get("mime_type")
         result["duration"] = video.get("duration")
-
     elif msg.get("document"):
         doc = msg["document"]
         result["message_type"] = "document"
@@ -494,7 +489,6 @@ def extract_media_info(msg):
         result["file_unique_id"] = doc.get("file_unique_id")
         result["file_name"] = doc.get("file_name")
         result["mime_type"] = doc.get("mime_type")
-
     elif msg.get("voice"):
         voice = msg["voice"]
         result["message_type"] = "voice"
@@ -599,11 +593,9 @@ def auto_forward_reply_media(business_connection_id: str, user_label: str, reply
     if message_type == "photo":
         notify_user_photo(business_connection_id, stored_path, caption=notify_caption)
         return True
-
     if message_type == "video":
         notify_user_video(business_connection_id, stored_path, caption=notify_caption)
         return True
-
     if message_type == "video_note":
         notify_user_video_note(business_connection_id, stored_path)
         notify_user_text(business_connection_id, notify_caption)
@@ -783,13 +775,14 @@ def process_update(update: dict):
                     "• Сохраняет reply на исчезающие фото, видео и кружки.\n\n"
                     "<b>Как подключить:</b>\n"
                     "1. Нажмите «Подключить».\n"
-                    "2. Откройте Telegram Business → Чат-боты.\n"
-                    "3. Или нажмите «Скопировать username» и вставьте его в поиск."
+                    "2. В открывшемся окне найдите блок <b>Автоматизация чатов</b>.\n"
+                    "3. Выберите <b>SnapSaveGuard</b>.\n"
+                    "4. Если бот не отображается, нажмите «Скопировать username» и вставьте <code>@snapsaveguard_bot</code>."
                 )
 
                 buttons = [
                     [
-                        {"text": "🟢 Подключить", "url": "https://t.me/snapsaveguard_bot"}
+                        {"text": "🟢 Подключить", "url": "tg://settings/edit"}
                     ],
                     [
                         {
