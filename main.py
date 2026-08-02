@@ -25,8 +25,8 @@ CONNECTIONS_FILE = "connections.json"
 MEDIA_DIR = Path("media")
 MEDIA_DIR.mkdir(exist_ok=True)
 
-DEMO_VIDEO_1 = "rabota1.mp4"
-DEMO_VIDEO_2 = "rabota-2.mp4"
+DEMO_VIDEO_1 = "rabota1.MP4"
+DEMO_VIDEO_2 = "rabota-2.MP4"
 
 
 def load_json(path: str):
@@ -234,6 +234,52 @@ def send_document(chat_id: int, file_path: str, caption: str = ""):
         return {"ok": False, "error": str(e)}
 
 
+def send_media_group_videos(chat_id: int, video1_path: str, video2_path: str, caption: str):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMediaGroup"
+
+    media = [
+        {
+            "type": "video",
+            "media": "attach://video1",
+            "caption": caption,
+            "parse_mode": "HTML"
+        },
+        {
+            "type": "video",
+            "media": "attach://video2"
+        }
+    ]
+
+    try:
+        with open(video1_path, "rb") as v1, open(video2_path, "rb") as v2:
+            response = requests.post(
+                url,
+                data={
+                    "chat_id": chat_id,
+                    "media": json.dumps(media, ensure_ascii=False)
+                },
+                files={
+                    "video1": v1,
+                    "video2": v2
+                },
+                timeout=120
+            )
+        try:
+            result = response.json()
+        except Exception:
+            result = {
+                "ok": False,
+                "status_code": response.status_code,
+                "text": response.text
+            }
+        print("TG_API sendMediaGroup:", result)
+        return result
+    except Exception as e:
+        result = {"ok": False, "error": str(e)}
+        print("TG_API sendMediaGroup EXCEPTION:", result)
+        return result
+
+
 def get_file(file_id: str):
     response = tg_api("getFile", data={"file_id": file_id})
     if response.get("ok"):
@@ -360,7 +406,15 @@ def notify_user_document(business_connection_id: str, file_path: str, caption: s
 
 
 def send_demo_content(chat_id: int):
-    demo_text = (
+    if not os.path.exists(DEMO_VIDEO_1):
+        send_message(chat_id, f"⚠️ Файл {DEMO_VIDEO_1} не найден на сервере.")
+        return
+
+    if not os.path.exists(DEMO_VIDEO_2):
+        send_message(chat_id, f"⚠️ Файл {DEMO_VIDEO_2} не найден на сервере.")
+        return
+
+    caption = (
         "🎥 <b>Демонстрация работы бота</b>\n\n"
         "<b>Видео 1:</b> сохранение исчезающих фото, видео и кружков.\n"
         "<b>Видео 2:</b> уведомления об изменении и удалении сообщений собеседником.\n\n"
@@ -368,25 +422,10 @@ def send_demo_content(chat_id: int):
         "и помогает не потерять важные медиафайлы."
     )
 
-    send_message(chat_id, demo_text)
+    result = send_media_group_videos(chat_id, DEMO_VIDEO_1, DEMO_VIDEO_2, caption)
 
-    if os.path.exists(DEMO_VIDEO_1):
-        send_video(
-            chat_id,
-            DEMO_VIDEO_1,
-            caption="🎬 Видео 1 — сохранение исчезающих медиафайлов"
-        )
-    else:
-        send_message(chat_id, "⚠️ Файл rabota1.mp4 не найден на сервере.")
-
-    if os.path.exists(DEMO_VIDEO_2):
-        send_video(
-            chat_id,
-            DEMO_VIDEO_2,
-            caption="🎬 Видео 2 — уведомления об изменении и удалении сообщений"
-        )
-    else:
-        send_message(chat_id, "⚠️ Файл rabota-2.mp4 не найден на сервере.")
+    if not result or not result.get("ok"):
+        send_message(chat_id, "❌ Не удалось отправить демонстрацию работы.")
 
 
 def get_reply_preview(reply_to):
@@ -656,10 +695,12 @@ def process_update(update: dict):
             chat_id = (msg.get("chat") or {}).get("id")
 
             if callback_id:
-                answer_callback_query(callback_id)
+                answer_callback_query(callback_id, "Загружаю демонстрацию...")
 
             if data == "show_demo" and chat_id:
                 send_demo_content(chat_id)
+
+            return
 
         elif "business_connection" in update:
             print("BUSINESS_CONNECTION HIT")
