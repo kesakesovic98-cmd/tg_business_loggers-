@@ -10,7 +10,10 @@ from fastapi import FastAPI, Request, Header, HTTPException, BackgroundTasks
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "").strip()
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", "").strip()
-RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "https://tg-business-loggers.onrender.com").strip()
+RENDER_EXTERNAL_URL = os.getenv(
+    "RENDER_EXTERNAL_URL",
+    "https://tg-business-loggers.onrender.com"
+).strip()
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is not set")
@@ -21,6 +24,9 @@ MESSAGES_FILE = "messages.json"
 CONNECTIONS_FILE = "connections.json"
 MEDIA_DIR = Path("media")
 MEDIA_DIR.mkdir(exist_ok=True)
+
+DEMO_VIDEO_1 = "rabota1.mp4"
+DEMO_VIDEO_2 = "rabota-2.mp4"
 
 
 def load_json(path: str):
@@ -68,6 +74,7 @@ async def set_webhook():
         "url": webhook_url,
         "allowed_updates": [
             "message",
+            "callback_query",
             "business_connection",
             "business_message",
             "edited_business_message",
@@ -161,6 +168,13 @@ def send_message_with_buttons(chat_id: int, text: str, buttons):
         "parse_mode": "HTML",
         "reply_markup": json.dumps({"inline_keyboard": buttons}, ensure_ascii=False)
     })
+
+
+def answer_callback_query(callback_query_id: str, text: str = ""):
+    data = {"callback_query_id": callback_query_id}
+    if text:
+        data["text"] = text
+    return tg_api("answerCallbackQuery", data=data)
 
 
 def send_photo(chat_id: int, photo_path: str, caption: str = ""):
@@ -345,6 +359,36 @@ def notify_user_document(business_connection_id: str, file_path: str, caption: s
     return send_document(user_chat_id, file_path, caption=caption)
 
 
+def send_demo_content(chat_id: int):
+    demo_text = (
+        "🎥 <b>Демонстрация работы бота</b>\n\n"
+        "<b>Видео 1:</b> сохранение исчезающих фото, видео и кружков.\n"
+        "<b>Видео 2:</b> уведомления об изменении и удалении сообщений собеседником.\n\n"
+        "Бот присылает уведомления даже тогда, когда вас нет в сети, "
+        "и помогает не потерять важные медиафайлы."
+    )
+
+    send_message(chat_id, demo_text)
+
+    if os.path.exists(DEMO_VIDEO_1):
+        send_video(
+            chat_id,
+            DEMO_VIDEO_1,
+            caption="🎬 Видео 1 — сохранение исчезающих медиафайлов"
+        )
+    else:
+        send_message(chat_id, "⚠️ Файл rabota1.mp4 не найден на сервере.")
+
+    if os.path.exists(DEMO_VIDEO_2):
+        send_video(
+            chat_id,
+            DEMO_VIDEO_2,
+            caption="🎬 Видео 2 — уведомления об изменении и удалении сообщений"
+        )
+    else:
+        send_message(chat_id, "⚠️ Файл rabota-2.mp4 не найден на сервере.")
+
+
 def get_reply_preview(reply_to):
     if not reply_to:
         return None
@@ -371,19 +415,14 @@ def is_disappearing_message(msg) -> bool:
 
     if msg.get("ttl_seconds"):
         return True
-
     if msg.get("self_destructs_in"):
         return True
-
     if msg.get("is_temporal"):
         return True
-
     if msg.get("is_ephemeral"):
         return True
-
     if msg.get("view_once"):
         return True
-
     if msg.get("has_protected_content"):
         return True
 
@@ -608,7 +647,21 @@ def process_update(update: dict):
     try:
         print("UPDATE RAW:", update)
 
-        if "business_connection" in update:
+        if "callback_query" in update:
+            print("CALLBACK_QUERY HIT")
+            cq = update["callback_query"]
+            callback_id = cq.get("id")
+            data = cq.get("data")
+            msg = cq.get("message") or {}
+            chat_id = (msg.get("chat") or {}).get("id")
+
+            if callback_id:
+                answer_callback_query(callback_id)
+
+            if data == "show_demo" and chat_id:
+                send_demo_content(chat_id)
+
+        elif "business_connection" in update:
             print("BUSINESS_CONNECTION HIT")
             bc = update["business_connection"]
             bc_id = bc.get("id")
@@ -791,7 +844,7 @@ def process_update(update: dict):
                         }
                     ],
                     [
-                        {"text": "🎥 Демонстрация работы", "url": "https://t.me/snapsaveguard_bot"}
+                        {"text": "🎥 Демонстрация работы", "callback_data": "show_demo"}
                     ]
                 ]
 
